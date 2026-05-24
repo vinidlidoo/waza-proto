@@ -10,3 +10,6 @@ xcuserdata/
 *.xcuserstate
 build/
 DerivedData/
+
+# Locally-generated test assets (regenerated on demand by scripts/publish-test-pattern.sh)
+assets/
