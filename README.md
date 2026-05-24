@@ -63,7 +63,7 @@ The point of v0.05 is to validate one thing — the one-way POV stream on our ow
 
 ## References
 
-- Waza brief: '~/Obsidian Vault/Protos/Waza — Live, hands-on tutoring through smart glasses.md'
+- Waza brief: [Live, hands-on tutoring through smart glasses](https://github.com/vinidlidoo/protos/blob/main/Waza%20%E2%80%94%20Live,%20hands-on%20tutoring%20through%20smart%20glasses.md)
 - Meta Wearables Device Access Toolkit (developer preview): <https://developers.meta.com/horizon/develop/wearables/>
 - LiveKit Cloud: <https://livekit.io>
 - LiveKit Swift SDK: <https://github.com/livekit/client-sdk-swift>
