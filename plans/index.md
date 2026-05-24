@@ -8,4 +8,4 @@ _None yet._
 
 ## Completed
 
-_None yet._
+- [02 — Browser viewer with hardcoded JWT](completed/02-browser-viewer.md) — static HTML + LiveKit JS SDK subscribing to a hardcoded room. Validated against a manually-minted token; awaits test-pattern publisher in step #3.

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Waza Proto viewer</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; color: #eee;
+      font: 14px -apple-system, system-ui, sans-serif; }
+    #status { position: fixed; top: 12px; left: 12px; padding: 6px 10px;
+      background: rgba(0,0,0,0.6); border-radius: 4px; }
+    #status.connected { background: rgba(0,128,0,0.7); }
+    #status.error { background: rgba(180,0,0,0.7); }
+    #video-slot { display: flex; align-items: center; justify-content: center;
+      height: 100%; }
+    #video-slot video { max-width: 100%; max-height: 100%; background: #000; }
+  </style>
+</head>
+<body>
+  <div id="status">starting…</div>
+  <div id="video-slot"></div>
+
+  <script type="module">
+    import { Room, RoomEvent, Track }
+      from 'https://cdn.jsdelivr.net/npm/livekit-client/+esm';
+
+    const LIVEKIT_URL = 'wss://waza-proto-tygbql84.livekit.cloud';
+
+    const statusEl = document.getElementById('status');
+    const slotEl = document.getElementById('video-slot');
+
+    function setStatus(text, cls = '') {
+      statusEl.textContent = text;
+      statusEl.className = cls;
+    }
+
+    const token = new URLSearchParams(location.search).get('token');
+    if (!token) {
+      setStatus('error: no ?token= in URL. Run ./scripts/mint-token.sh', 'error');
+      throw new Error('missing token');
+    }
+
+    const room = new Room();
+
+    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      if (track.kind !== Track.Kind.Video) return;
+      const el = track.attach();
+      el.autoplay = true;
+      el.playsInline = true;
+      slotEl.replaceChildren(el);
+      setStatus(`receiving video from ${participant.identity}`, 'connected');
+    });
+
+    room.on(RoomEvent.Disconnected, () => setStatus('disconnected', 'error'));
+    room.on(RoomEvent.ConnectionStateChanged, (state) => {
+      console.log('connection state:', state);
+    });
+
+    setStatus('connecting…');
+    try {
+      await room.connect(LIVEKIT_URL, token);
+      setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+    } catch (err) {
+      console.error(err);
+      setStatus(`error: ${err.message}`, 'error');
+    }
+  </script>
+</body>
+</html>
