@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.swp
+
+# Xcode (for when the iOS app lands)
+xcuserdata/
+*.xcuserstate
+build/
+DerivedData/
