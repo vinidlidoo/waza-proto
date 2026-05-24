@@ -2,7 +2,7 @@
 
 Prototype of a sub-second POV video pipeline: Ray-Ban Meta glasses → iPhone (Swift + LiveKit SDK) → LiveKit Cloud → browser viewer. The v0.05 rung on the Waza experiment ladder.
 
-The bootstrap plan and build ladder live in `bootstrap-plan.md`. Read it before making architectural suggestions.
+The project overview, architecture rationale, and build ladder live in `README.md`. Read it before making architectural suggestions.
 
 ## Plans and decisions
 
