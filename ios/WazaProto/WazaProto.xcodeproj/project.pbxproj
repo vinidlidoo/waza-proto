@@ -8,15 +8,30 @@
 
 /* Begin PBXBuildFile section */
 		BF69BE2E2FC3BE7800065FF6 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE2D2FC3BE7800065FF6 /* LiveKit */; };
+		BF69BE352FC4C66100065FF6 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE342FC4C66100065FF6 /* MWDATCamera */; };
+		BF69BE372FC4C66100065FF6 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE362FC4C66100065FF6 /* MWDATCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BF69BE1E2FC3BC2F00065FF6 /* WazaProto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WazaProto.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		BF69BE402FC4D00000065FF6 /* Exceptions for "WazaProto" folder in "WazaProto" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = BF69BE1D2FC3BC2F00065FF6 /* WazaProto */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		BF69BE202FC3BC2F00065FF6 /* WazaProto */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				BF69BE402FC4D00000065FF6 /* Exceptions for "WazaProto" folder in "WazaProto" target */,
+			);
 			path = WazaProto;
 			sourceTree = "<group>";
 		};
@@ -28,6 +43,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				BF69BE2E2FC3BE7800065FF6 /* LiveKit in Frameworks */,
+				BF69BE372FC4C66100065FF6 /* MWDATCore in Frameworks */,
+				BF69BE352FC4C66100065FF6 /* MWDATCamera in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +88,8 @@
 			name = WazaProto;
 			packageProductDependencies = (
 				BF69BE2D2FC3BE7800065FF6 /* LiveKit */,
+				BF69BE342FC4C66100065FF6 /* MWDATCamera */,
+				BF69BE362FC4C66100065FF6 /* MWDATCore */,
 			);
 			productName = WazaProto;
 			productReference = BF69BE1E2FC3BC2F00065FF6 /* WazaProto.app */;
@@ -102,6 +121,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				BF69BE2C2FC3BE7800065FF6 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+				BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BF69BE1F2FC3BC2F00065FF6 /* Products */;
@@ -264,14 +284,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = ZA3LRD9PGM;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Waza Proto publishes your camera to demonstrate the streaming pipeline.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Waza Proto initializes audio capture as a side-effect of the camera pipeline.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WazaProto/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -299,14 +313,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = ZA3LRD9PGM;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Waza Proto publishes your camera to demonstrate the streaming pipeline.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Waza Proto initializes audio capture as a side-effect of the camera pipeline.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WazaProto/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -357,6 +365,14 @@
 				minimumVersion = 2.14.1;
 			};
 		};
+		BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -364,6 +380,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BF69BE2C2FC3BE7800065FF6 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
+		};
+		BF69BE342FC4C66100065FF6 /* MWDATCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCamera;
+		};
+		BF69BE362FC4C66100065FF6 /* MWDATCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

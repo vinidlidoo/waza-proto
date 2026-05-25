@@ -1,21 +1,29 @@
-import AVFoundation
 import Combine
 import LiveKit
 import SwiftUI
 
-/// Owns the LiveKit Room and exposes its state to SwiftUI.
-///
-/// The Swift SDK's Room class is itself an ObservableObject, but we wrap it
-/// here so the view binds to one tidy object with a small surface (Connect /
-/// Disconnect + status + the live preview track), and so all the async work
-/// stays in one file.
+/// Adapter that knows how to publish (and tear down) a single video track on a
+/// given Room. Each concrete source — phone front camera, glasses — implements
+/// this; `RoomConnection` is source-agnostic.
+@MainActor
+protocol VideoPublisher: AnyObject {
+    func publish(to room: Room) async throws -> VideoTrack?
+    func unpublish(from room: Room) async
+}
+
 @MainActor
 final class RoomConnection: ObservableObject {
-    // MARK: - Published state
+    enum Source: String, CaseIterable, Identifiable {
+        case frontCamera = "Front camera"
+        case glasses = "Glasses"
+        var id: String { rawValue }
+    }
+
     enum Status: Equatable {
         case disconnected
         case connecting
         case connected
+        case switching
         case failed(String)
 
         var label: String {
@@ -23,6 +31,7 @@ final class RoomConnection: ObservableObject {
             case .disconnected:     return "Disconnected"
             case .connecting:       return "Connecting…"
             case .connected:        return "Publishing as ios-publisher"
+            case .switching:        return "Switching source…"
             case .failed(let msg):  return "Error: \(msg)"
             }
         }
@@ -32,32 +41,85 @@ final class RoomConnection: ObservableObject {
     @Published private(set) var localVideoTrack: VideoTrack?
 
     let room = Room()
+    private var publisher: VideoPublisher?
 
-    // MARK: - Actions
-
-    func connect() {
+    func connect(source: Source, glasses: GlassesGateway) {
         Task {
             status = .connecting
+            let publisher = makePublisher(source: source, glasses: glasses)
+            self.publisher = publisher
             do {
                 try await room.connect(url: Secrets.wsURL, token: Secrets.token)
-                try await room.localParticipant.setCamera(
-                    enabled: true,
-                    captureOptions: CameraCaptureOptions(position: .front)
-                )
-                localVideoTrack = room.localParticipant.firstCameraVideoTrack
+                localVideoTrack = try await publisher.publish(to: room)
                 status = .connected
             } catch {
-                status = .failed(error.localizedDescription)
+                status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
+                await publisher.unpublish(from: room)
                 await room.disconnect()
+                self.publisher = nil
+            }
+        }
+    }
+
+    /// Swap publishers without dropping the room connection. Caller must
+    /// already be `.connected`. On failure, status flips to `.failed` and the
+    /// caller is expected to revert any UI source selection.
+    func switchSource(to source: Source, glasses: GlassesGateway) {
+        guard case .connected = status else { return }
+        Task {
+            status = .switching
+            let oldPublisher = publisher
+            let newPublisher = makePublisher(source: source, glasses: glasses)
+            do {
+                if let oldPublisher { await oldPublisher.unpublish(from: room) }
+                localVideoTrack = nil
+                publisher = newPublisher
+                localVideoTrack = try await newPublisher.publish(to: room)
+                status = .connected
+            } catch {
+                status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
+                await newPublisher.unpublish(from: room)
+                await room.disconnect()
+                publisher = nil
             }
         }
     }
 
     func disconnect() {
         Task {
+            if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
+            publisher = nil
             localVideoTrack = nil
             status = .disconnected
+        }
+    }
+
+    private func makePublisher(source: Source, glasses: GlassesGateway) -> VideoPublisher {
+        switch source {
+        case .frontCamera:
+            return FrontCameraSource()
+        case .glasses:
+            return GlassesSource(
+                wearables: glasses.wearables,
+                deviceSelector: glasses.deviceSelector,
+                onTerminated: { [weak self] in self?.handleGlassesTerminated() }
+            )
+        }
+    }
+
+    private func handleGlassesTerminated() {
+        // Called from GlassesSource's watchdog when its DAT DeviceSession ends
+        // unexpectedly (e.g. hinge fold). Tear the LiveKit side down cleanly so
+        // the viewer flips to "waiting for video" and the user can hit Connect
+        // again once the glasses are usable.
+        guard publisher is GlassesSource else { return }
+        Task {
+            if let publisher { await publisher.unpublish(from: room) }
+            await room.disconnect()
+            self.publisher = nil
+            localVideoTrack = nil
+            status = .failed("Glasses session ended — unfold and reconnect")
         }
     }
 }

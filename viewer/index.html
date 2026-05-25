@@ -45,9 +45,16 @@
       if (track.kind !== Track.Kind.Video) return;
       const el = track.attach();
       el.autoplay = true;
+      el.muted = true;        // required for autoplay on a dynamically-injected element after a publisher source swap
       el.playsInline = true;
       slotEl.replaceChildren(el);
+      el.play().catch((err) => console.warn('autoplay rejected:', err));
       setStatus(`receiving video from ${participant.identity}`, 'connected');
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      track.detach().forEach((el) => el.remove());
+      setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
     });
 
     room.on(RoomEvent.Disconnected, () => setStatus('disconnected', 'error'));
