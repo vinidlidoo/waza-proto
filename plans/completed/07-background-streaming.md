@@ -67,7 +67,34 @@ The DAT SDK's `DeviceSession` runs on a `WearablesInterface` that talks to glass
 2. Meta's own session-lifecycle docs define three `SessionState` values: `RUNNING` (active streaming), `PAUSED` ("Session is temporarily suspended. Hold work. Paths may resume."), and `STOPPED` (terminal). Critically: "`SessionState` does not expose the reason for a transition." So backgrounding *may* surface as a `PAUSED` event but so may other causes (low battery, glasses removed, system pre-emption). Our existing `GlassesSource.swift` watchdog already treats only `.stopped` as terminal and just logs other state transitions — that contract holds.
 3. We bypassed the broken wearables-dat MCP by reading Meta's published `llms.txt` directly (`https://wearables.developer.meta.com/llms.txt?full=true`). The MCP returns `FlexBoxBackground` for every query regardless of phrasing — this is a tool-broken issue worth filing, not a docs gap.
 
-With the plist set per §1 (`bluetooth-peripheral` + `external-accessory`) and the SDK being app-state-agnostic, the expected behavior is: backgrounding does not stop frame delivery, `videoFramePublisher.listen` continues firing, and the only state we might see is occasional `.paused` → `.running` transitions (which the existing code already handles).
+**Implementation finding (resolved the actual bug):**
+
+The §1 plist + `suspendLocalVideoTracksInBackground=false` + active AVAudioSession (via `setMicrophone(enabled:true)`) are all necessary but **not sufficient**. Live test on a connected phone showed:
+
+- Hera (XMS_WARP / `MediaQualityMonitor`) keeps reporting 30 fps from the glasses regardless of foreground/background — the glasses-to-phone link is fine.
+- Our per-frame counter inside `videoFramePublisher.listen` **stops firing the instant the app backgrounds** (frame count freezes at whatever it was when the user swiped home).
+
+The cause is documented in DAT's `VideoCodec` enum reference (https://wearables.developer.meta.com/docs/reference/ios_swift/dat/0.6/mwdatcamera_videocodec):
+
+> **`raw`**: "Raw decompressed video frames (420v YUV pixel buffers). Note: Video frames are only delivered while the app is in the foreground. When the app enters background, frame delivery stops. **Use hvc1 if you need to receive frames while backgrounded.**"
+> **`hvc1`**: "Compressed HEVC video frames. Frames are delivered as compressed `CMSampleBuffer`s without decoding, in both foreground and background."
+
+We're on `.raw`. The decompression DAT does internally (presumably VideoToolbox-backed) is foreground-only. With `.hvc1`, DAT hands us the compressed HEVC `CMSampleBuffer` directly and decoding becomes our problem — but that decode happens in our process (which is alive via `external-accessory` background mode), so it works.
+
+**Fix plan (ready to apply, not yet applied):**
+
+1. **`GlassesSource.swift:55`**: change `videoCodec: .raw` → `videoCodec: .hvc1`.
+2. **Add a `VTDecompressionSession`** lazily on first frame (extract format description from the first `CMSampleBuffer`, build session with no output callback so we can use the synchronous closure form).
+3. In the frame listener, route through `VTDecompressionSessionDecodeFrame(..., outputHandler: { [capturer] status, _, imageBuffer, _, _ in ... })` and on success call `capturer.capture(pixelBuffer, timeStampNs:, rotation:)` — LiveKit's `BufferCapturer` has a direct `CVPixelBuffer` overload, no need to rewrap into a `CMSampleBuffer`.
+4. Tear down the decompression session in `unpublish` (alongside the existing `stream.stop` / `deviceSession.stop`).
+
+Estimated diff: ~35-50 lines net add, all in `GlassesSource.swift`. `RoomConnection.swift` unchanged from current state (which already has `suspendLocalVideoTracksInBackground=false` and `setMicrophone(enabled:true)` — those remain necessary, since the §1-style plist + active audio session is what convinces iOS to keep the WebRTC sockets alive; the codec change only fixes the *source* of frames).
+
+**Risks / known costs:**
+
+- CPU: we now decode HEVC then WebRTC re-encodes to H.264 (or VP8) per frame. At 30 fps × 720p this is real work — both VideoToolbox HW paths so probably fine on iPhone 17, but worth a thermal/battery measurement after it works.
+- Latency: one extra decode round-trip. Likely <5 ms; well within the sub-second budget.
+- Alternative considered and rejected: pass HEVC bytes straight to LiveKit. Grepping `livekit/client-sdk-swift` for `HEVC|H265|hvc1` returns zero hits — no HEVC pass-through support. The transcode is the only realistic path.
 
 Mitigation if frames stall despite the above: capture-side keepalive (publish a transparent 1×1 frame every N seconds when no glasses frame has arrived), watchdog-restart the DAT session if `videoFramePublisher` goes silent for >5s.
 
@@ -110,14 +137,47 @@ No new files expected. Tiny config change + possibly a few lines of LiveKit publ
 7. No memory or battery surprises: 10 minutes of backgrounded glasses streaming uses no more than ~1.5× the foreground baseline of either.
 8. Console logs from the backgrounded period (captured via `devicectl device process launch --console`) show the LiveKit PeerConnection staying connected, no reconnect storms.
 
+### No-regression gate
+
+Adding the HEVC decode step inside our app moves work that previously ran inside Meta's Hera process into our process. The bet is "same operation count, same hardware path, no observable change in the foreground experience" — that bet needs evidence:
+
+- **R1 — Foreground FPS unchanged**: the `[glasses] decode fps=X` heartbeat logged once per second from `GlassesSource` reports ~30 fps (matches the pre-fix `.raw` baseline) for the entire foreground portion of a session.
+- **R2 — Background FPS at parity**: same heartbeat continues at ~30 fps after backgrounding. No sustained drops, no zero-fps gaps longer than the codec keyframe interval.
+- **R3 — Visual quality parity**: side-by-side or before/after viewer check during a foreground capture finds no perceptible quality regression.
+- **R4 — Latency parity**: glanceable check — point the glasses at a stopwatch, look at the viewer-side delay. Should be within the same envelope as the `.raw` baseline (no extra ~50ms+ added by the new decode hop).
+- **R5 — No leaks across a long session**: 10 min foreground + 10 min backgrounded, app memory footprint at the end ≤ 1.3× the post-publish baseline. (Glance via Xcode debug navigator memory graph or `devicectl device info processes` over time.)
+
+R1, R2, and R5 are the load-bearing ones — if any fails, do not close step 7.
+
 ## Decisions logged during implementation
 
-*(Fill in as we go.)*
+- **All four publish-side knobs are load-bearing** — none are redundant. Confirmed empirically by reverting each in isolation:
+  1. `Info.plist` `UIBackgroundModes` = `audio` + `bluetooth-peripheral` + `external-accessory` + `processing` + `bluetooth-central` (Meta's set plus LiveKit's `audio`)
+  2. `RoomOptions(suspendLocalVideoTracksInBackground: false)` — without this, LiveKit calls `.suspend()` on any `source=.camera` track the instant the app backgrounds, regardless of the plist. (See `livekit/client-sdk-swift#832`.)
+  3. `room.localParticipant.setMicrophone(enabled: true)` — `UIBackgroundModes=audio` only keeps WebRTC sockets warm when there's an *active* `AVAudioSession`. Publishing a (currently silent / unused) mic track is the cheapest way to satisfy that. Without it the WebRTC PeerConnection still pauses despite the plist. (See `livekit/client-sdk-swift#510`.)
+  4. `GlassesSource`: `VideoCodec.hvc1` + in-app `VTDecompressionSession`. Documented in DAT's `VideoCodec` reference: `.raw` is *foreground-only by design* — DAT's internal decoder stops delivering frames the instant the app loses foreground. `.hvc1` delivers compressed HEVC `CMSampleBuffer`s continuously, and we decode in our own process (which stays alive via `external-accessory`).
+- **DAT's adaptive ladder requires runtime decoder rebuild.** The bitrate ladder silently swaps resolutions mid-stream (we've observed 720×1280 ↔ 504×896 swaps every few seconds under weak Bluetooth). Each swap ships new SPS/PPS/VPS, so a cached `VTDecompressionSession` rejects every subsequent frame with `-12916` (`kVTVideoDecoderBadDataErr`). Fix: call `VTDecompressionSessionCanAcceptFormatDescription` on each frame and rebuild on mismatch (`VTDecompressionSessionInvalidate` the old one first). Observed multiple clean rebuilds per minute during testing — runtime cost is negligible.
+- **DAT hands us real HVCC, not Annex B.** Diagnostic dump confirmed the `CMSampleBuffer` data buffer is already length-prefixed (`00 00 66 52` for a 26194-byte NAL, total buffer 26198 bytes). No Annex B → AVCC conversion needed — VideoToolbox decodes directly.
+- **Pixel format**: `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange` — matches what `.raw` was delivering and one of LiveKit `BufferCapturer`'s supported formats. Smooth swap.
+- **Background-transition stutter is acceptable, not fixed.** Each foreground↔background swap triggers ~5 seconds of `-17694` (`kVTVideoDecoderReferenceMissingErr`) — the HW decoder lost its reference frame across the suspension and waits for the next IDR before recovering. Heartbeat resumes at ~25-30 fps after the IDR arrives. No clean way to force DAT to emit an immediate keyframe today; logged as tech debt rather than worked around.
+- **First-frame signal moved into the VT output handler** (vs. firing on first encoded-sample arrival). More correct — we only consider the publish "ready" once we've actually produced a pixel buffer — at the cost of a hang risk if decode ever drops the first sample. In practice the first sample is always an IDR, so this never bites.
+- **Codex review false positive** flagged the `VTDecompressionSessionDecodeFrame` output handler as 6-arg; actual `VTDecompressionOutputHandler` typealias is 5-arg. The 6-arg variant belongs to `VTDecompressionSessionDecodeFrameWithMultiImageCapableOutputHandler`, a different function. Build succeeded, runs on-device. No change.
 
 ## Vincent's learnings
 
-*(Fill in as we go.)*
+- iOS "background modes" don't compose intuitively. `audio` is a *condition* (keep this app's network alive *if* it has an active `AVAudioSession`), not a *promise* (this app is allowed to keep streaming). The trick of publishing a mic track to *activate* an `AVAudioSession` so the `audio` mode kicks in is a recurring iOS-WebRTC pattern, not specific to LiveKit.
+- "Background works" is a spectrum. A 5-second reference-frame stutter at every app-switch is fine for "publisher puts phone in pocket and walks around" (one transition, then steady). It would be unacceptable for "publisher actively flips between apps." Worth being honest about the failure mode rather than claiming feature parity.
+- Three different vendors' background semantics had to align: Apple's UIApplication suspension, LiveKit's track-suspension policy, and DAT's frame-delivery contract. Each had docs; none mentioned the other two. The interaction is implementation-defined.
 
 ## Tech debt opened
 
-*(Likely: long-session JWT refresh, possibly a silent-audio-track workaround. Log to `plans/tech-debt-tracker.md` as it surfaces.)*
+Logged to `plans/tech-debt-tracker.md`:
+
+- **Background-transition IDR stutter** (~5s of `-17694` errors at every foreground↔background transition). Force a keyframe on transition once DAT exposes a hook for it.
+
+Forward-looking ideas (not debt — moved to `plans/features.md`):
+
+- H.265 publish to LiveKit (codec swap only — uses the Swift SDK 2.7.0+ `preferredCodec: .h265` path)
+- Encoded-frame ingest (true HEVC pass-through, removing the decode+re-encode hop entirely)
+- Long-session JWT auto-refresh on the publisher
+- Front-camera backgrounding

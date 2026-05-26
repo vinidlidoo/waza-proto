@@ -41,7 +41,11 @@ final class RoomConnection: NSObject, ObservableObject {
     @Published private(set) var localVideoTrack: VideoTrack?
     @Published private(set) var watcherCount: Int = 0
 
-    let room = Room()
+    // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
+    // .suspend() on any track with source=.camera (which includes our
+    // glasses BufferCapturer) the moment the app backgrounds, regardless
+    // of UIBackgroundModes. See livekit/client-sdk-swift#832.
+    let room = Room(roomOptions: RoomOptions(suspendLocalVideoTracksInBackground: false))
     private var publisher: VideoPublisher?
 
     override init() {
@@ -57,6 +61,12 @@ final class RoomConnection: NSObject, ObservableObject {
             do {
                 try await room.connect(url: Secrets.wsURL, token: Secrets.token)
                 watcherCount = currentWatcherCount()
+                // Publish the mic to activate an AVAudioSession — iOS only
+                // honors UIBackgroundModes=audio's network keepalive while an
+                // audio session is actually active. Without this, WebRTC's
+                // sockets pause when the app backgrounds even though the
+                // process keeps running. See livekit/client-sdk-swift#510.
+                try await room.localParticipant.setMicrophone(enabled: true)
                 localVideoTrack = try await publisher.publish(to: room)
                 status = .connected
             } catch {

@@ -2,6 +2,7 @@ import Foundation
 import LiveKit
 import MWDATCamera
 import MWDATCore
+import VideoToolbox
 
 @MainActor
 final class GlassesSource: VideoPublisher {
@@ -51,8 +52,13 @@ final class GlassesSource: VideoPublisher {
         }
         print("[glasses] session reached .started")
 
+        // .hvc1 (compressed HEVC) keeps frames flowing while backgrounded;
+        // .raw is documented foreground-only and stops the publisher's frame
+        // callback the instant the app loses foreground. We decode locally with
+        // VideoToolbox below before handing pixel buffers to LiveKit.
+        // https://wearables.developer.meta.com/docs/reference/ios_swift/dat/0.6/mwdatcamera_videocodec
         guard let stream = try session.addStream(config: StreamConfiguration(
-            videoCodec: .raw,
+            videoCodec: .hvc1,
             resolution: .high,
             frameRate: 30
         )) else {
@@ -72,12 +78,76 @@ final class GlassesSource: VideoPublisher {
         // yields become no-ops instead of accumulating in an unbounded buffer.
         let firstFrame = AsyncStream<Void> { continuation in
             var fired = false
+            var decompressionSession: VTDecompressionSession?
+            var fpsWindowStart = CFAbsoluteTimeGetCurrent()
+            var fpsWindowFrames = 0
             self.frameToken = stream.videoFramePublisher.listen { frame in
-                capturer.capture(frame.sampleBuffer)
-                if !fired {
-                    fired = true
-                    continuation.yield()
-                    continuation.finish()
+                let sampleBuffer = frame.sampleBuffer
+                guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
+
+                // DAT's adaptive-quality ladder silently swaps resolutions on
+                // weak Bluetooth links (e.g. high → medium); each switch ships
+                // new parameter sets, so the cached decoder must be rebuilt or
+                // every subsequent frame returns kVTVideoDecoderBadDataErr.
+                let needsNewSession: Bool = {
+                    guard let existing = decompressionSession else { return true }
+                    return !VTDecompressionSessionCanAcceptFormatDescription(existing, formatDescription: formatDescription)
+                }()
+                if needsNewSession {
+                    if let existing = decompressionSession {
+                        VTDecompressionSessionInvalidate(existing)
+                        decompressionSession = nil
+                    }
+                    let attributes: [CFString: Any] = [
+                        kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                    ]
+                    var session: VTDecompressionSession?
+                    let status = VTDecompressionSessionCreate(
+                        allocator: kCFAllocatorDefault,
+                        formatDescription: formatDescription,
+                        decoderSpecification: nil,
+                        imageBufferAttributes: attributes as CFDictionary,
+                        outputCallback: nil,
+                        decompressionSessionOut: &session
+                    )
+                    if status == noErr {
+                        decompressionSession = session
+                        let dims = CMVideoFormatDescriptionGetDimensions(formatDescription)
+                        print("[glasses] decoder (re)built for \(dims.width)x\(dims.height)")
+                    } else {
+                        print("[glasses] VTDecompressionSessionCreate failed: \(status)")
+                        return
+                    }
+                }
+                guard let session = decompressionSession else { return }
+                VTDecompressionSessionDecodeFrame(
+                    session,
+                    sampleBuffer: sampleBuffer,
+                    flags: [],
+                    infoFlagsOut: nil
+                ) { status, _, imageBuffer, presentationTimeStamp, _ in
+                    guard status == noErr, let imageBuffer else {
+                        if status != noErr {
+                            print("[glasses] decode error status=\(status)")
+                        }
+                        return
+                    }
+                    let timeStampNs = Int64(presentationTimeStamp.seconds * 1_000_000_000)
+                    capturer.capture(imageBuffer, timeStampNs: timeStampNs, rotation: ._0)
+                    if !fired {
+                        fired = true
+                        continuation.yield()
+                        continuation.finish()
+                    }
+                }
+                fpsWindowFrames += 1
+                let now = CFAbsoluteTimeGetCurrent()
+                let elapsed = now - fpsWindowStart
+                if elapsed >= 1.0 {
+                    let fps = Double(fpsWindowFrames) / elapsed
+                    print(String(format: "[glasses] decode fps=%.1f", fps))
+                    fpsWindowStart = now
+                    fpsWindowFrames = 0
                 }
             }
         }
