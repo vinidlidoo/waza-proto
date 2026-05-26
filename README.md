@@ -53,11 +53,11 @@ With [`just`](https://github.com/casey/just) installed (`brew install just`), `j
 
 - `cd viewer && npm test` — Vitest unit tests for the Vercel token-mint API (`viewer/api/token.js`). Covers invite verification, JWT minting, missing-env behavior, and identity collision-resistance. ~200 ms.
 - `cd viewer && npm run test:e2e` — Playwright end-to-end test for the browser viewer. Spawns `lk room join --publish` against the `waza-proto` room with a generated H.264 test pattern, serves `viewer/index.html` + the local token endpoint on `http://localhost:4173`, opens the page in system Chrome (not Playwright's vendored Chromium — that ships without H.264 codec support and silently drops the subscribed track), asserts the `<video>` element receives non-zero dimensions. ~10 s. Requires repo-root `.env` (`LIVEKIT_*`, `INVITE_SIGNING_SECRET`), and `lk` CLI installed. First-run setup: `cd viewer && npm install && npx playwright install chrome`.
-- iOS suite — two `xcodebuild test` commands, one per target. The scheme's auto-generated test action only includes the unit-test target by default; sharing the scheme via Xcode (Manage Schemes → check Shared, then edit Test → +) would let a single `xcodebuild test` cover both. From `ios/WazaProto/`:
+- iOS suite — two `xcodebuild test` commands, scoped with `-only-testing` so each tier reports separately. The shared scheme at `WazaProto.xcodeproj/xcshareddata/xcschemes/WazaProto.xcscheme` includes both `WazaProtoTests` and `WazaProtoUITests`, so a single bare `xcodebuild test` would run everything in one bundle — the split below is for cleaner per-tier accounting (matches `just test`'s tiers). From `ios/WazaProto/`:
   ```
   xcodebuild test -project WazaProto.xcodeproj -scheme WazaProto \
     -destination 'platform=iOS Simulator,name=iPhone 17' \
-    -parallel-testing-enabled NO
+    -parallel-testing-enabled NO -only-testing:WazaProtoTests
   xcodebuild test -project WazaProto.xcodeproj -scheme WazaProto \
     -destination 'platform=iOS Simulator,name=iPhone 17' \
     -parallel-testing-enabled NO -only-testing:WazaProtoUITests
