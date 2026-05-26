@@ -15,11 +15,16 @@ class MockDeviceKitTestCase: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
 
+        // Match Meta's CameraAccessTests setup exactly (samples/CameraAccess/
+        // CameraAccessTests/CameraAccessTests.swift:26-28): configure() FIRST,
+        // then MDK.enable() with no MockDeviceKitConfig. Streaming/frame
+        // delivery appears to require this ordering even though device
+        // discovery works without it. `try?` because configure() throws if
+        // already configured by an earlier test in the same process.
+        try? Wearables.configure()
+
         let kit = MockDeviceKit.shared
-        kit.enable(config: MockDeviceKitConfig(
-            initiallyRegistered: true,
-            initialPermissionsGranted: true
-        ))
+        kit.enable()
 
         let device = kit.pairRaybanMeta()
         device.powerOn()
