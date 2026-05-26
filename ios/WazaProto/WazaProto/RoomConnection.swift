@@ -130,9 +130,13 @@ final class RoomConnection: NSObject, ObservableObject {
     // api/token.js as `viewer-<8chars>`). Filters out stale ghosts and any
     // future agent/system participants in the room.
     private func currentWatcherCount() -> Int {
-        room.remoteParticipants.values.filter {
-            ($0.identity?.stringValue ?? "").hasPrefix("viewer-")
-        }.count
+        Self.watcherCount(identities: room.remoteParticipants.values.map {
+            $0.identity?.stringValue ?? ""
+        })
+    }
+
+    nonisolated static func watcherCount(identities: [String]) -> Int {
+        identities.filter { $0.hasPrefix("viewer-") }.count
     }
 
     private func handleGlassesTerminated() {

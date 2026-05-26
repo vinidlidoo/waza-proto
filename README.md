@@ -45,6 +45,13 @@ Order chosen so each step validates one slice of the pipeline. If something brea
 4. **iOS shell with LiveKit Swift SDK, publishing the iPhone's built-in front camera.** Confirms iOS publish path, token mint, and end-to-end view in the browser. *No WDAT yet.* ~2–3 hours.
 5. **Swap iPhone front camera for WDAT glasses frames.** Wire WDAT's frame callback into LiveKit's custom video source (`RTCVideoSource`). Pixel format conversion is the load-bearing piece — likely `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange` → `RTCVideoFrame`. ~4–8 hours, depending on WDAT SDK ergonomics.
 
+## Testing
+
+Locally-runnable test suites grow one tier per stage of [plan 08](plans/active/08-test-suite.md). Stage status drives this list — each stage adds one line.
+
+- `cd viewer && npm test` — Vitest unit tests for the Vercel token-mint API (`viewer/api/token.js`). Covers invite verification, JWT minting, missing-env behavior, and identity collision-resistance. ~200 ms.
+- `cd ios/WazaProto && xcodebuild test -project WazaProto.xcodeproj -scheme WazaProto -destination 'platform=iOS Simulator,name=iPhone 17'` — XCTest unit tests in the `WazaProtoTests` target. Covers `Secrets` shape validation, `RoomConnection.Status` equality + labels, and the viewer-identity filter helper. Requires `Secrets.swift` (run `./scripts/refresh-secrets.sh` first on a fresh checkout).
+
 ## Open questions
 
 - **WDAT frame format and surface.** Does the iOS WDAT SDK hand frames as `CMSampleBuffer`, `CVPixelBuffer`, or something else? What pixel format? At what cadence?
