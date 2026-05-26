@@ -47,7 +47,7 @@ final class RoomConnectionWatcherFilterTests: XCTestCase {
         XCTAssertEqual(RoomConnection.watcherCount(identities: identities), 3)
     }
 
-    func testRejectsIdentitiesWithoutDashSeparator() {
+    func testPrefixMatchOnly() {
         // The mint format is `viewer-<8hex>`. A bare "viewer" is not a viewer
         // identity and must not be counted; "viewer-" alone DOES start with the
         // prefix and is counted (we don't validate the suffix here — that's a

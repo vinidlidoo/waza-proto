@@ -29,11 +29,9 @@ test.describe('viewer e2e', () => {
         await expect
             .poll(
                 async () => {
-                    const v = await page.locator('#video-slot video').first().evaluate(
-                        (el) => ({ w: el?.videoWidth ?? 0, h: el?.videoHeight ?? 0 }),
-                        undefined,
-                        { timeout: 1000 }
-                    ).catch(() => ({ w: 0, h: 0 }));
+                    const v = await page.locator('#video-slot video').first()
+                        .evaluate((el) => ({ w: el?.videoWidth ?? 0, h: el?.videoHeight ?? 0 }))
+                        .catch(() => ({ w: 0, h: 0 }));
                     return v.w > 0 && v.h > 0;
                 },
                 {

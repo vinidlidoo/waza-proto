@@ -47,7 +47,7 @@ Order chosen so each step validates one slice of the pipeline. If something brea
 
 ## Testing
 
-Locally-runnable test suites grow one tier per stage of [plan 08](plans/active/08-test-suite.md). Stage status drives this list — each stage adds one line.
+Locally-runnable test suites grow one tier per stage of [plan 08](plans/completed/08-test-suite.md). Stage status drives this list — each stage adds one line.
 
 - `cd viewer && npm test` — Vitest unit tests for the Vercel token-mint API (`viewer/api/token.js`). Covers invite verification, JWT minting, missing-env behavior, and identity collision-resistance. ~200 ms.
 - `cd viewer && npm run test:e2e` — Playwright end-to-end test for the browser viewer. Spawns `lk room join --publish` against the `waza-proto` room with a generated H.264 test pattern, serves `viewer/index.html` + the local token endpoint on `http://localhost:4173`, opens the page in system Chrome (not Playwright's vendored Chromium — that ships without H.264 codec support and silently drops the subscribed track), asserts the `<video>` element receives non-zero dimensions. ~10 s. Requires repo-root `.env` (`LIVEKIT_*`, `INVITE_SIGNING_SECRET`), and `lk` CLI installed. First-run setup: `cd viewer && npm install && npx playwright install chrome`.

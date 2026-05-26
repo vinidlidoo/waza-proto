@@ -22,11 +22,12 @@ const { default: tokenHandler } = await import('../api/token.js');
 
 // Vercel's @vercel/node request type adds .query (parsed search params) and
 // the response gains .status()/.json()/.setHeader chainable helpers. Node's
-// raw http req/res don't, so adapt at the boundary.
-function adapt(req, res) {
-    const url = new URL(req.url, 'http://localhost');
+// raw http req/res don't, so adapt at the boundary. NOT emulated: req.body
+// JSON parsing, req.cookies, res.send, res.redirect — if token.js ever needs
+// one of those, extend here.
+function adapt(req, res, url) {
     req.query = Object.fromEntries(url.searchParams);
-    res.status = (code) => { res.statusCode = code ; return res ; };
+    res.status = (code) => { res.statusCode = code; return res; };
     res.json = (body) => {
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(body));
@@ -37,7 +38,7 @@ function adapt(req, res) {
 const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/api/token') {
-        adapt(req, res);
+        adapt(req, res, url);
         try {
             await tokenHandler(req, res);
         } catch (err) {

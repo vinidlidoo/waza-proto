@@ -44,6 +44,14 @@ describe('viewer/api/token handler', () => {
     process.env = originalEnv;
   });
 
+  it('missing invite param → 401 missing_invite', async () => {
+    const res = mockResponse();
+    await handler({ query: {} }, res);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toBe('missing_invite');
+  });
+
   it('valid invite → mints a viewer- token with 10m TTL', async () => {
     const invite = await mintInvite();
     const res = mockResponse();
@@ -96,7 +104,7 @@ describe('viewer/api/token handler', () => {
     );
   });
 
-  it('different invites → distinct viewer identities (no collisions)', async () => {
+  it('different invites → distinct viewer identities (non-deterministic mint)', async () => {
     const results = await Promise.all(
       Array.from({ length: 20 }, async () => {
         const invite = await mintInvite();

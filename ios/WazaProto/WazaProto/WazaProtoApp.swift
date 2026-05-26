@@ -17,7 +17,10 @@ struct WazaProtoApp: App {
         do {
             try Wearables.configure()
         } catch {
-            assertionFailure("Wearables.configure() failed: \(error)")
+            // fatalError (not assertionFailure) so Release builds also crash
+            // here with a meaningful message rather than continuing and
+            // fataling later inside SwiftUI body on Wearables.shared access.
+            fatalError("Wearables.configure() failed: \(error)")
         }
 
         #if DEBUG
@@ -30,7 +33,10 @@ struct WazaProtoApp: App {
                 initiallyRegistered: true,
                 initialPermissionsGranted: true
             ))
-            let portFilePath = ProcessInfo.processInfo.environment["MWDAT_TEST_SERVER_PORT_FILE"]
+            guard let portFilePath = ProcessInfo.processInfo.environment["MWDAT_TEST_SERVER_PORT_FILE"] else {
+                assertionFailure("--ui-testing requires MWDAT_TEST_SERVER_PORT_FILE env var")
+                return
+            }
             Task { try? await MockDeviceKit.shared.startTestServer(portFilePath: portFilePath) }
         }
         #endif

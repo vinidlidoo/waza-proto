@@ -7,7 +7,7 @@
 import { config as loadEnv } from 'dotenv';
 import { SignJWT } from 'jose';
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, unlink } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -18,6 +18,10 @@ const PUBLISHER_PID_FILE = resolve(__dirname, '.publisher.pid');
 
 export default async function globalSetup() {
     loadEnv({ path: resolve(REPO_ROOT, '.env') });
+
+    // Clear any stale PID file from a crashed prior run — otherwise teardown
+    // could SIGTERM a recycled PID belonging to an unrelated process.
+    try { await unlink(PUBLISHER_PID_FILE); } catch {}
 
     for (const key of ['INVITE_SIGNING_SECRET', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_URL']) {
         if (!process.env[key]) throw new Error(`missing env var ${key}; check repo-root .env`);
