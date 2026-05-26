@@ -23,3 +23,6 @@ assets/
 # Vercel project (viewer/)
 viewer/node_modules/
 viewer/.vercel/
+
+# Codex (codex-companion runtime cache)
+.codex/
