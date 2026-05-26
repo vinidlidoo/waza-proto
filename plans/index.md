@@ -4,7 +4,7 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-*(none in flight)*
+- [07 — Background streaming (glasses path)](active/07-background-streaming.md) — let the iPhone keep publishing glasses POV while user is in another app or phone is locked. Glasses source only (front camera defers — Apple blocks background camera capture). UIBackgroundModes + DAT session-survives-suspend testing.
 
 ## Completed
 
