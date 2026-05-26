@@ -28,12 +28,14 @@ class MockDeviceKitTestCase: XCTestCase {
 
         let device = kit.pairRaybanMeta()
         device.powerOn()
-        // Meta's CameraAccess sample test uses unfold() (not don()) here —
-        // streaming is gated on the unfolded state on simulator. See
-        // CHANGELOG entry: "MockDeviceKit: streaming now correctly resumes
-        // when the device transitions to donned-disabled and back via
-        // fold/unfold cycle".
         device.unfold()
+        // Per issue #171 advice (alexsinkmeta, Meta, 2026-05-15): devices
+        // aren't considered "active" unless donned. We tried this as a fix
+        // for our upstream #197 — empirically it does NOT unblock
+        // videoFramePublisher on iOS 26.5 sim (see the skipped
+        // testVideoFramePublisherFiresOnSimulator). Keeping the call since
+        // it matches Meta's stated requirement and is otherwise harmless.
+        device.don()
 
         let bundle = Bundle(for: type(of: self))
         let fixtureURL = try XCTUnwrap(
