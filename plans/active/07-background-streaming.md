@@ -20,20 +20,39 @@ Front-camera backgrounding is the expensive case (Apple actively prevents normal
 
 Two pieces.
 
-### 1. Enable background execution for the LiveKit upstream
+### 1. Enable background execution for the LiveKit upstream + DAT pipe
 
-Add to `Info.plist`:
+Add to `Info.plist` (combining LiveKit's and Meta's authoritative guidance):
 
-- `UIBackgroundModes` = `["audio"]` (and possibly `["voip"]` — verify which one LiveKit's WebRTC stack expects to keep the connection alive)
-- Justification string if Apple flags it during review (irrelevant for dev builds, document for posterity)
+```xml
+<key>UIBackgroundModes</key>
+<array>
+    <string>audio</string>
+    <string>bluetooth-peripheral</string>
+    <string>external-accessory</string>
+</array>
+<key>UISupportedExternalAccessoryProtocols</key>
+<array>
+    <string>com.meta.ar.wearable</string>
+</array>
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>Needed to connect to Meta Wearables</string>
+```
 
-LiveKit Swift SDK should "just work" once the system stops suspending the app — the `Room` and its peer connection are already long-lived objects. Verify against the SDK's background-mode docs and any sample app code.
+- **`audio`** — LiveKit's [Swift quickstart](https://docs.livekit.io/transport/sdk-platforms/swift/) and [media-publish docs](https://docs.livekit.io/transport/media/publish/) both prescribe this as the single mode needed to keep audio sessions (which include the WebRTC PeerConnection carrying video) alive in background. Cross-platform docs (Flutter, generic) say the same. The SDK's own test host plist additionally lists `voip` — likely for testing CallKit-style scenarios, not a requirement for normal video publishing. Start with `audio` only.
+- **`bluetooth-peripheral`** and **`external-accessory`** — both required per Meta's [DAT iOS integration guide](https://wearables.developer.meta.com/docs/develop/dat/build-integration-ios). The DAT pipe is **two channels, not one**:
+  - **Control plane (BLE)**: pairing, discovery, capability negotiation, session state. Covered by `bluetooth-peripheral` (counter-intuitively named — the phone isn't acting as a central scanner; it's exposing services that the glasses consume).
+  - **Data plane (ExternalAccessory framework)**: the actual video bytes. Apple's ExternalAccessory is an MFi-only API that abstracts the physical transport — under the hood, Ray-Ban Meta video almost certainly rides a Wi-Fi peer-to-peer link, not BLE (BLE peaks at a few Mbps real-world, nowhere near enough for HD@30fps). Your app sees an `EASession` with input/output streams keyed by the registered protocol `com.meta.ar.wearable`; iOS picks the physical link invisibly.
 
-The trick is that `UIBackgroundModes = ["audio"]` is technically dishonest for a video-only publisher. Two alternatives to evaluate:
-- Publish a silent audio track alongside video — turns "audio" mode into truthful, lets us keep the capability without lying to Apple
-- Use `voip` mode + CallKit — heavier (PushKit, call object lifecycle), but the legitimate fit for "this is a live A/V session"
+  Both modes are needed because dropping either kills the pipe: lose BLE and the session terminates; lose ExternalAccessory and the video stops even though the session looks alive. Meta's docs also call for the `UISupportedExternalAccessoryProtocols` array (registers our app to see accessories speaking that protocol — without it the OS refuses to surface them) and the `NSBluetoothAlwaysUsageDescription` privacy string.
 
-For v0.07 we go with whichever works in the simplest test; refactor to honest-mode in a follow-up if review feedback (or our own taste) demands it.
+The trick is that `audio` is technically dishonest for a video-only publisher. Two alternatives to evaluate only if `audio` proves insufficient:
+- Publish a silent audio track alongside video — turns the claim into truthful, App Store reviewer-safe
+- Add `voip` mode + CallKit + PushKit — legitimate fit for "this is a live A/V session", but heavy and requires CallKit integration since iOS 13 (Apple now requires VoIP background apps to use CallKit/PushKit)
+
+For v0.07, start with the three-mode array above. Refactor to honest-mode in a follow-up if review feedback (or our own taste) demands it.
+
+> **Note on App Store distribution**: Meta's docs explicitly warn that the DAT SDK currently triggers App Store rejection due to MFi program + privacy-manifest requirements, so distribution is via TestFlight / release channels only. Not actionable for v0.07 but worth tracking — this is why we don't need to over-engineer the "is `audio`-mode honest?" question yet.
 
 ### 2. DAT session survives suspension
 
@@ -42,9 +61,15 @@ The DAT SDK's `DeviceSession` runs on a `WearablesInterface` that talks to glass
 - Does the `videoFramePublisher.listen { ... }` callback keep firing while backgrounded? If yes, frames keep flowing into the `BufferCapturer` and LiveKit publishes them as normal. If no, we need to find an SDK hook to keep the session warm.
 - Does `AutoDeviceSelector`'s reconnection loop survive backgrounding? If the user toggles glasses on/off while phone is backgrounded, do we still get the device-change events?
 
-Likely both work fine with the background mode enabled — Bluetooth + network are both background-allowed APIs, and the DAT SDK doesn't gate on UIApplication state. But this is the most likely place for a surprise, and is what the testing in §Done criteria is structured to expose.
+**Research finding (de-risked):**
 
-Possible mitigation if frames stall: capture-side keepalive (publish a transparent 1×1 frame every N seconds when no glasses frame has arrived), watchdog-restart the DAT session if `videoFramePublisher` goes silent for >5s.
+1. Grepping MWDATCore + MWDATCamera swiftinterfaces (`background|suspend|appState|UIApplication|scenePhase|...`) returns zero hits — the DAT SDK is *agnostic* to UIApplication state, with no public hooks for foreground/background transitions.
+2. Meta's own session-lifecycle docs define three `SessionState` values: `RUNNING` (active streaming), `PAUSED` ("Session is temporarily suspended. Hold work. Paths may resume."), and `STOPPED` (terminal). Critically: "`SessionState` does not expose the reason for a transition." So backgrounding *may* surface as a `PAUSED` event but so may other causes (low battery, glasses removed, system pre-emption). Our existing `GlassesSource.swift` watchdog already treats only `.stopped` as terminal and just logs other state transitions — that contract holds.
+3. We bypassed the broken wearables-dat MCP by reading Meta's published `llms.txt` directly (`https://wearables.developer.meta.com/llms.txt?full=true`). The MCP returns `FlexBoxBackground` for every query regardless of phrasing — this is a tool-broken issue worth filing, not a docs gap.
+
+With the plist set per §1 (`bluetooth-peripheral` + `external-accessory`) and the SDK being app-state-agnostic, the expected behavior is: backgrounding does not stop frame delivery, `videoFramePublisher.listen` continues firing, and the only state we might see is occasional `.paused` → `.running` transitions (which the existing code already handles).
+
+Mitigation if frames stall despite the above: capture-side keepalive (publish a transparent 1×1 frame every N seconds when no glasses frame has arrived), watchdog-restart the DAT session if `videoFramePublisher` goes silent for >5s.
 
 ## File layout (delta from step #6)
 
@@ -60,18 +85,19 @@ No new files expected. Tiny config change + possibly a few lines of LiveKit publ
 ## Key decisions (upfront)
 
 - **Glasses path only.** Front camera backgrounding requires one of three workarounds, all expensive: PiP (fiddly capture-into-PiP plumbing), CallKit + VoIP background mode (PushKit, call lifecycle, real overhead), or a custom system-level capability we won't get. For v0.07 we either disable Connect when source=frontCamera + app-is-backgrounded, or document "front camera is foreground-only" and pause cleanly. Re-evaluate front-camera backgrounding only if real demo feedback says it matters.
-- **`UIBackgroundModes = ["audio"]` is the simplest hypothesis.** Try it first. If WebRTC doesn't survive, escalate to `voip` + CallKit. Don't add CallKit speculatively — the surface area (PushKit, providers, call updates) is large and meaningful to test.
+- **`UIBackgroundModes = ["audio", "bluetooth-peripheral", "external-accessory"]` is the starting point** — `audio` from LiveKit's Swift docs; `bluetooth-peripheral` + `external-accessory` from Meta's own DAT iOS integration guide (which also requires `UISupportedExternalAccessoryProtocols=[com.meta.ar.wearable]` and an `NSBluetoothAlwaysUsageDescription` privacy string). If WebRTC still suspends despite `audio`, escalate to `voip` + CallKit — but don't add CallKit speculatively, the surface area (PushKit, providers, call updates) is large and meaningful to test.
 - **No silent-audio-track upfront.** Try without it. If `["audio"]` is rejected by review or fails to keep the connection alive without an actual audio track, add one — but the cost (an unused upstream track on every viewer) is real, so prove it's needed first.
 - **Don't change the `BufferCapturer` or `GlassesSource` lifecycle.** The bet is that backgrounding just works with the right plist flag + DAT SDK behavior. Refactors come only if the bet loses.
 
 ## Open questions
 
-- Which of `audio` / `voip` actually keeps the LiveKit WebRTC PeerConnection from being suspended? Need to test or find authoritative docs (the LiveKit Swift SDK README/docs likely cover this).
-- Does the DAT SDK keep delivering frames in the background, or is there a Wearables session that suspends? Worth grep-ing the SDK or asking the wearables-dat MCP.
+- ~~Which of `audio` / `voip` keeps the LiveKit WebRTC PeerConnection alive~~ — **resolved by research:** LiveKit's official Swift quickstart + media-publish docs both prescribe `audio` as the single mode needed. `voip` only appears in their test host plist and is the heavier escalation (requires CallKit + PushKit on modern iOS).
+- ~~Does the DAT SDK keep delivering frames in the background~~ — **resolved by Meta's own iOS integration guide** (fetched via published `llms.txt` after the wearables-dat MCP returned junk). The plist needs `bluetooth-peripheral` + `external-accessory` + `UISupportedExternalAccessoryProtocols=[com.meta.ar.wearable]`; with those set, the SDK is app-state-agnostic and `videoFramePublisher` should keep firing. SessionState may transition to `.paused` for unrelated reasons (low battery, etc.) — our watchdog already only tears down on `.stopped`, so no code changes needed for that.
 - What's the right UX when source=frontCamera and user backgrounds the app? Three options: (a) pause publishing silently and resume on foreground; (b) show a notification "front camera paused — return to app or switch to glasses"; (c) leave a placeholder frame ("camera paused" graphic) so viewers know it's intentional. Default to (a) unless testing reveals viewer confusion.
 - Does screen lock count as backgrounding for the camera-access restriction? Glasses-source shouldn't care (it's not using the phone camera), but worth testing explicitly since lock-screen is the common case ("user puts phone in pocket while wearing glasses").
 - Battery / thermals: how much hotter does the phone run while backgrounded-publishing for 10+ minutes? Could be a tech-debt item if it's bad enough to throttle.
 - Does the LiveKit JWT in `Secrets.swift` (6h TTL) need a refresh path before we trust long backgrounded sessions? Today the publisher JWT is regenerated manually via `refresh-secrets.sh` — fine for demos, but a backgrounded stream that runs for 6+ hours hits expiry. Out of scope, but flag for tech debt.
+- ~~Does the glasses video pipe use BLE end-to-end or Wi-Fi-direct~~ — **resolved**: Meta's docs reveal it uses the iOS `ExternalAccessory` framework (MFi-style) registered to the `com.meta.ar.wearable` protocol for the high-bandwidth path, plus BLE under the `bluetooth-peripheral` mode for the control channel. Both are covered by the §1 plist.
 
 ## Done criteria
 
