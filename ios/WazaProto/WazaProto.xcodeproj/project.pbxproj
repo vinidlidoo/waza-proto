@@ -10,10 +10,32 @@
 		BF69BE2E2FC3BE7800065FF6 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE2D2FC3BE7800065FF6 /* LiveKit */; };
 		BF69BE352FC4C66100065FF6 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE342FC4C66100065FF6 /* MWDATCamera */; };
 		BF69BE372FC4C66100065FF6 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE362FC4C66100065FF6 /* MWDATCore */; };
+		BF69BE7C2FC6088700065FF6 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */; };
+		BF69BE842FC617DB00065FF6 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE832FC617DB00065FF6 /* MWDATMockDevice */; };
+		BF69BE972FC6186800065FF6 /* MWDATMockDeviceTestClient in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE962FC6186800065FF6 /* MWDATMockDeviceTestClient */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BF69BE6A2FC5FEB800065FF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BF69BE162FC3BC2F00065FF6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BF69BE1D2FC3BC2F00065FF6;
+			remoteInfo = WazaProto;
+		};
+		BF69BE8F2FC6182B00065FF6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BF69BE162FC3BC2F00065FF6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BF69BE1D2FC3BC2F00065FF6;
+			remoteInfo = WazaProto;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		BF69BE1E2FC3BC2F00065FF6 /* WazaProto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WazaProto.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BF69BE662FC5FEB800065FF6 /* WazaProtoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WazaProtoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BF69BE892FC6182B00065FF6 /* WazaProtoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WazaProtoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -35,6 +57,22 @@
 			path = WazaProto;
 			sourceTree = "<group>";
 		};
+		BF69BE672FC5FEB800065FF6 /* WazaProtoTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WazaProtoTests;
+			sourceTree = "<group>";
+		};
+		BF69BE812FC60A5F00065FF6 /* fixtures */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = fixtures;
+			path = WazaProtoTests/fixtures;
+			sourceTree = "<group>";
+		};
+		BF69BE8A2FC6182B00065FF6 /* WazaProtoUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WazaProtoUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,7 +82,24 @@
 			files = (
 				BF69BE2E2FC3BE7800065FF6 /* LiveKit in Frameworks */,
 				BF69BE372FC4C66100065FF6 /* MWDATCore in Frameworks */,
+				BF69BE842FC617DB00065FF6 /* MWDATMockDevice in Frameworks */,
 				BF69BE352FC4C66100065FF6 /* MWDATCamera in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF69BE632FC5FEB800065FF6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF69BE7C2FC6088700065FF6 /* MWDATMockDevice in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF69BE862FC6182B00065FF6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF69BE972FC6186800065FF6 /* MWDATMockDeviceTestClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,7 +110,11 @@
 			isa = PBXGroup;
 			children = (
 				BF69BE202FC3BC2F00065FF6 /* WazaProto */,
+				BF69BE672FC5FEB800065FF6 /* WazaProtoTests */,
+				BF69BE8A2FC6182B00065FF6 /* WazaProtoUITests */,
+				BF69BE7A2FC6088700065FF6 /* Frameworks */,
 				BF69BE1F2FC3BC2F00065FF6 /* Products */,
+				BF69BE812FC60A5F00065FF6 /* fixtures */,
 			);
 			sourceTree = "<group>";
 		};
@@ -63,8 +122,17 @@
 			isa = PBXGroup;
 			children = (
 				BF69BE1E2FC3BC2F00065FF6 /* WazaProto.app */,
+				BF69BE662FC5FEB800065FF6 /* WazaProtoTests.xctest */,
+				BF69BE892FC6182B00065FF6 /* WazaProtoUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BF69BE7A2FC6088700065FF6 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -84,16 +152,67 @@
 			);
 			fileSystemSynchronizedGroups = (
 				BF69BE202FC3BC2F00065FF6 /* WazaProto */,
+				BF69BE812FC60A5F00065FF6 /* fixtures */,
 			);
 			name = WazaProto;
 			packageProductDependencies = (
 				BF69BE2D2FC3BE7800065FF6 /* LiveKit */,
 				BF69BE342FC4C66100065FF6 /* MWDATCamera */,
 				BF69BE362FC4C66100065FF6 /* MWDATCore */,
+				BF69BE832FC617DB00065FF6 /* MWDATMockDevice */,
 			);
 			productName = WazaProto;
 			productReference = BF69BE1E2FC3BC2F00065FF6 /* WazaProto.app */;
 			productType = "com.apple.product-type.application";
+		};
+		BF69BE652FC5FEB800065FF6 /* WazaProtoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BF69BE6C2FC5FEB800065FF6 /* Build configuration list for PBXNativeTarget "WazaProtoTests" */;
+			buildPhases = (
+				BF69BE622FC5FEB800065FF6 /* Sources */,
+				BF69BE632FC5FEB800065FF6 /* Frameworks */,
+				BF69BE642FC5FEB800065FF6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BF69BE6B2FC5FEB800065FF6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BF69BE672FC5FEB800065FF6 /* WazaProtoTests */,
+				BF69BE812FC60A5F00065FF6 /* fixtures */,
+			);
+			name = WazaProtoTests;
+			packageProductDependencies = (
+				BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */,
+			);
+			productName = WazaProtoTests;
+			productReference = BF69BE662FC5FEB800065FF6 /* WazaProtoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		BF69BE882FC6182B00065FF6 /* WazaProtoUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BF69BE912FC6182B00065FF6 /* Build configuration list for PBXNativeTarget "WazaProtoUITests" */;
+			buildPhases = (
+				BF69BE852FC6182B00065FF6 /* Sources */,
+				BF69BE862FC6182B00065FF6 /* Frameworks */,
+				BF69BE872FC6182B00065FF6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BF69BE902FC6182B00065FF6 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BF69BE8A2FC6182B00065FF6 /* WazaProtoUITests */,
+			);
+			name = WazaProtoUITests;
+			packageProductDependencies = (
+				BF69BE962FC6186800065FF6 /* MWDATMockDeviceTestClient */,
+			);
+			productName = WazaProtoUITests;
+			productReference = BF69BE892FC6182B00065FF6 /* WazaProtoUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -107,6 +226,14 @@
 				TargetAttributes = {
 					BF69BE1D2FC3BC2F00065FF6 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					BF69BE652FC5FEB800065FF6 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = BF69BE1D2FC3BC2F00065FF6;
+					};
+					BF69BE882FC6182B00065FF6 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = BF69BE1D2FC3BC2F00065FF6;
 					};
 				};
 			};
@@ -129,12 +256,28 @@
 			projectRoot = "";
 			targets = (
 				BF69BE1D2FC3BC2F00065FF6 /* WazaProto */,
+				BF69BE652FC5FEB800065FF6 /* WazaProtoTests */,
+				BF69BE882FC6182B00065FF6 /* WazaProtoUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		BF69BE1C2FC3BC2F00065FF6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF69BE642FC5FEB800065FF6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF69BE872FC6182B00065FF6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -151,7 +294,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BF69BE622FC5FEB800065FF6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF69BE852FC6182B00065FF6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BF69BE6B2FC5FEB800065FF6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BF69BE1D2FC3BC2F00065FF6 /* WazaProto */;
+			targetProxy = BF69BE6A2FC5FEB800065FF6 /* PBXContainerItemProxy */;
+		};
+		BF69BE902FC6182B00065FF6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BF69BE1D2FC3BC2F00065FF6 /* WazaProto */;
+			targetProxy = BF69BE8F2FC6182B00065FF6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BF69BE272FC3BC3000065FF6 /* Debug */ = {
@@ -333,6 +503,88 @@
 			};
 			name = Release;
 		};
+		BF69BE6D2FC5FEB800065FF6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZA3LRD9PGM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vincent.WazaProtoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WazaProto.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WazaProto";
+			};
+			name = Debug;
+		};
+		BF69BE6E2FC5FEB800065FF6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZA3LRD9PGM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vincent.WazaProtoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WazaProto.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WazaProto";
+			};
+			name = Release;
+		};
+		BF69BE922FC6182B00065FF6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZA3LRD9PGM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vincent.WazaProtoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = WazaProto;
+			};
+			name = Debug;
+		};
+		BF69BE932FC6182B00065FF6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZA3LRD9PGM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.vincent.WazaProtoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = WazaProto;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -350,6 +602,24 @@
 			buildConfigurations = (
 				BF69BE2A2FC3BC3000065FF6 /* Debug */,
 				BF69BE2B2FC3BC3000065FF6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BF69BE6C2FC5FEB800065FF6 /* Build configuration list for PBXNativeTarget "WazaProtoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BF69BE6D2FC5FEB800065FF6 /* Debug */,
+				BF69BE6E2FC5FEB800065FF6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BF69BE912FC6182B00065FF6 /* Build configuration list for PBXNativeTarget "WazaProtoUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BF69BE922FC6182B00065FF6 /* Debug */,
+				BF69BE932FC6182B00065FF6 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -390,6 +660,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATCore;
+		};
+		BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDevice;
+		};
+		BF69BE832FC617DB00065FF6 /* MWDATMockDevice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDevice;
+		};
+		BF69BE962FC6186800065FF6 /* MWDATMockDeviceTestClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDeviceTestClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

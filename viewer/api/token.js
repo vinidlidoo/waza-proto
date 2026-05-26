@@ -2,15 +2,22 @@ import { AccessToken } from 'livekit-server-sdk';
 import { jwtVerify, errors as joseErrors } from 'jose';
 import { randomUUID } from 'node:crypto';
 
-const inviteKey = new TextEncoder().encode(process.env.INVITE_SIGNING_SECRET);
+const REQUIRED_ENV = ['INVITE_SIGNING_SECRET', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_URL'];
 
 export default async function handler(req, res) {
+  const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    res.status(500).json({ error: 'missing_env', missing });
+    return;
+  }
+
   const invite = req.query.invite;
   if (!invite) {
     res.status(401).json({ error: 'missing_invite' });
     return;
   }
 
+  const inviteKey = new TextEncoder().encode(process.env.INVITE_SIGNING_SECRET);
   try {
     await jwtVerify(invite, inviteKey, { algorithms: ['HS256'] });
   } catch (err) {

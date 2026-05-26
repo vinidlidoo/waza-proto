@@ -6,10 +6,11 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-*(none — pick the next rung)*
+*(no active plans)*
 
 ## Completed
 
+- [08 — Automated test suite (local)](completed/08-test-suite.md) — cross-cutting infra (not a build-ladder rung). Five staged tiers, all locally-runnable: Vercel token-mint (Vitest), iOS pure-logic XCTest, iOS XCTest against Meta's MockDeviceKit, iOS XCUITest via MDK's test server, browser viewer Playwright + `lk` publisher. Stages 3 and 4 re-scoped to smoke-only after empirical finding that `stream.videoFramePublisher` doesn't fire under MDK on iOS 26.5 sim — upstream issue [#197](https://github.com/facebook/meta-wearables-dat-ios/issues/197). CI integration tracked separately in [features/ci-integration.md](features/ci-integration.md).
 - [07 — Background streaming (glasses path)](completed/07-background-streaming.md) — iPhone keeps publishing the glasses POV while the app is backgrounded or the screen is locked. Required four load-bearing knobs in concert: `UIBackgroundModes` (`audio` + Meta's BLE/MFi modes), `RoomOptions(suspendLocalVideoTracksInBackground: false)`, a published mic track to activate `AVAudioSession`, and a codec swap to `VideoCodec.hvc1` + in-app `VTDecompressionSession` with runtime decoder-rebuild on DAT's adaptive-ladder resolution swaps. Closes v0.07.
 - [06 — Shareable viewer link](completed/06-shareable-viewer.md) — viewer hosted at `waza-proto.vercel.app`; Vercel Node serverless token mint gated by per-invite HS256 JWTs (3h TTL, no denylist); iPhone "Copy viewer link" button + "N watching" overlay badge. Closes v0.06.
 - [05 — Glasses frames via WDAT, published through LiveKit](completed/05-wdat-glasses-frames.md) — swapped iPhone front camera for Ray-Ban Meta POV via DAT v0.7; frame bridge `videoFramePublisher.listen { capturer.capture($0.sampleBuffer) }`; live source swap, hinge-fold teardown, Developer Mode credentials. Closes v0.05.

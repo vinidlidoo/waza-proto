@@ -45,6 +45,25 @@ Order chosen so each step validates one slice of the pipeline. If something brea
 4. **iOS shell with LiveKit Swift SDK, publishing the iPhone's built-in front camera.** Confirms iOS publish path, token mint, and end-to-end view in the browser. *No WDAT yet.* ~2–3 hours.
 5. **Swap iPhone front camera for WDAT glasses frames.** Wire WDAT's frame callback into LiveKit's custom video source (`RTCVideoSource`). Pixel format conversion is the load-bearing piece — likely `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange` → `RTCVideoFrame`. ~4–8 hours, depending on WDAT SDK ergonomics.
 
+## Testing
+
+Locally-runnable test suites grow one tier per stage of [plan 08](plans/completed/08-test-suite.md). Stage status drives this list — each stage adds one line.
+
+With [`just`](https://github.com/casey/just) installed (`brew install just`), `just test` runs all four tiers and prints a pass/fail/duration summary; `just --list` shows the per-tier recipes (`test-unit`, `test-e2e`, `test-ios-unit`, `test-ios-ui`). `just test-detail` runs everything in verbose mode and emits a per-test catalog grouped by tier, with a one-line description of what each tier verifies. The raw commands below are what each recipe runs.
+
+- `cd viewer && npm test` — Vitest unit tests for the Vercel token-mint API (`viewer/api/token.js`). Covers invite verification, JWT minting, missing-env behavior, and identity collision-resistance. ~200 ms.
+- `cd viewer && npm run test:e2e` — Playwright end-to-end test for the browser viewer. Spawns `lk room join --publish` against the `waza-proto` room with a generated H.264 test pattern, serves `viewer/index.html` + the local token endpoint on `http://localhost:4173`, opens the page in system Chrome (not Playwright's vendored Chromium — that ships without H.264 codec support and silently drops the subscribed track), asserts the `<video>` element receives non-zero dimensions. ~10 s. Requires repo-root `.env` (`LIVEKIT_*`, `INVITE_SIGNING_SECRET`), and `lk` CLI installed. First-run setup: `cd viewer && npm install && npx playwright install chrome`.
+- iOS suite — two `xcodebuild test` commands, scoped with `-only-testing` so each tier reports separately. The shared scheme at `WazaProto.xcodeproj/xcshareddata/xcschemes/WazaProto.xcscheme` includes both `WazaProtoTests` and `WazaProtoUITests`, so a single bare `xcodebuild test` would run everything in one bundle — the split below is for cleaner per-tier accounting (matches `just test`'s tiers). From `ios/WazaProto/`:
+  ```
+  xcodebuild test -project WazaProto.xcodeproj -scheme WazaProto \
+    -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -parallel-testing-enabled NO -only-testing:WazaProtoTests
+  xcodebuild test -project WazaProto.xcodeproj -scheme WazaProto \
+    -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -parallel-testing-enabled NO -only-testing:WazaProtoUITests
+  ```
+  The first runs `WazaProtoTests` (Secrets shape validation, `RoomConnection.Status` equality + labels, viewer-identity filter helper, MockDeviceKit smoke test). The second runs `WazaProtoUITests` (launches the app with `--ui-testing`, drives Meta's Mock Device test server, asserts the SwiftUI Connect button enables once the mock pair propagates). Requires `Secrets.swift` (run `./scripts/refresh-secrets.sh` first on a fresh checkout). `-parallel-testing-enabled NO` keeps tests on the explicitly-booted simulator; cloned-simulator parallel runs have been flaky for us on iOS 26.5.
+
 ## Open questions
 
 - **WDAT frame format and surface.** Does the iOS WDAT SDK hand frames as `CMSampleBuffer`, `CVPixelBuffer`, or something else? What pixel format? At what cadence?

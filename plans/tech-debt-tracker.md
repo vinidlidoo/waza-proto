@@ -48,7 +48,7 @@ The `MWDATCore.framework` XCFramework (Meta WDAT SDK v0.7) statically links Swif
 - Visible quality regression compared to "what the glasses actually shipped to us."
 - LiveKit shipping a Swift-native encoded-frame ingest API.
 
-**Where to start:** See `plans/features.md::Encoded-frame ingest (true HEVC pass-through)` for Path A (wait for native API) and Path B (lk CLI relay). Pairs with `plans/features.md::H.265 publish to LiveKit` for the simpler codec-swap-only intermediate win.
+**Where to start:** See `plans/features/encoded-frame-ingest.md` for Path A (wait for native API) and Path B (lk CLI relay). Pairs with `plans/features/h265-publish.md` for the simpler codec-swap-only intermediate win.
 
 ## Glasses stream: background-transition reference-frame stutter
 
