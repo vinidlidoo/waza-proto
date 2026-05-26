@@ -4,8 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Hosted viewer + serverless invite-gated token mint for the waza-proto LiveKit room.",
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "jose": "^5.9.6",
     "livekit-server-sdk": "^2.9.7"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
   }
 }
