@@ -10,6 +10,7 @@
 		BF69BE2E2FC3BE7800065FF6 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE2D2FC3BE7800065FF6 /* LiveKit */; };
 		BF69BE352FC4C66100065FF6 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE342FC4C66100065FF6 /* MWDATCamera */; };
 		BF69BE372FC4C66100065FF6 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE362FC4C66100065FF6 /* MWDATCore */; };
+		BF69BE7C2FC6088700065FF6 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +52,12 @@
 			path = WazaProtoTests;
 			sourceTree = "<group>";
 		};
+		BF69BE812FC60A5F00065FF6 /* fixtures */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = fixtures;
+			path = WazaProtoTests/fixtures;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +75,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF69BE7C2FC6088700065FF6 /* MWDATMockDevice in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,7 +87,9 @@
 			children = (
 				BF69BE202FC3BC2F00065FF6 /* WazaProto */,
 				BF69BE672FC5FEB800065FF6 /* WazaProtoTests */,
+				BF69BE7A2FC6088700065FF6 /* Frameworks */,
 				BF69BE1F2FC3BC2F00065FF6 /* Products */,
+				BF69BE812FC60A5F00065FF6 /* fixtures */,
 			);
 			sourceTree = "<group>";
 		};
@@ -90,6 +100,13 @@
 				BF69BE662FC5FEB800065FF6 /* WazaProtoTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BF69BE7A2FC6088700065FF6 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -135,9 +152,11 @@
 			);
 			fileSystemSynchronizedGroups = (
 				BF69BE672FC5FEB800065FF6 /* WazaProtoTests */,
+				BF69BE812FC60A5F00065FF6 /* fixtures */,
 			);
 			name = WazaProtoTests;
 			packageProductDependencies = (
+				BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */,
 			);
 			productName = WazaProtoTests;
 			productReference = BF69BE662FC5FEB800065FF6 /* WazaProtoTests.xctest */;
@@ -516,6 +535,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
 			productName = MWDATCore;
+		};
+		BF69BE7B2FC6088700065FF6 /* MWDATMockDevice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BF69BE332FC4C66100065FF6 /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDevice;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -168,6 +168,15 @@ Stage-level done criteria are listed per stage above. Plan-level done = stages 1
 
 ## Decisions logged during implementation
 
+### Stage 3
+
+- **Open question resolved: MDK frame delivery doesn't work on the iOS Simulator (in-process API).** Empirical: after `pairRaybanMeta()` + `powerOn()` + `unfold()` + 1s settle + `setCameraFeed(fileURL:)`, the real `Wearables.shared` sees the mock and `AutoDeviceSelector.activeDevice` fires. We can `createSession() → start() → addStream() → stream.start()` without error. But `stream.videoFramePublisher.listen` is **never** called — `recv fps: 0` forever on the WARP transport. Tried both `.hvc1` (our production codec) and `.raw / .low / 24fps` (the codec Meta's own `CameraAccessTests.testVideoStreamingFlow()` uses). Neither produces frames. `FigCaptureSourceSimulator err=-12784` bursts in the log are unrelated AVFoundation-on-simulator noise.
+- **Open question resolved: `mockDevice.fold()` doesn't propagate to session termination on the simulator either.** With an active stream attached, fold() leaves session state at `.started` and the watchdog never fires `onTerminated`. Confirmed up to a 10s wait. So the watchdog-wiring test is not exercisable through the in-process API on simulator.
+- **Stage 3 re-scoped to smoke only.** Ship `testWearablesDiscoversMockDevice` (MDK setup → real SDK sees the mock). Drop the `prepareTrack`/`unpublish`/hinge-fold/source-swap assertions — they all require either frame delivery or fold-propagation, neither of which the simulator's in-process MDK provides. The plan explicitly anticipated this re-scope ("If no, simulator-side tests stop at LocalVideoTrack creation + first-frame delivery into BufferCapturer"); we're stopping one notch earlier than that.
+- **GlassesSource left untouched.** Initially extracted `prepareTrack()` from `publish(to:)` thinking we'd drive it in tests; reverted once we re-scoped — the extraction served no shipped test, so minimum diff wins.
+- **Setup recipe from Meta's CameraAccessTests is load-bearing.** `MockDeviceKit.shared.enable(config:)` + `pairRaybanMeta()` + `powerOn()` + **`unfold()`** (not `don()`) + 1s sleep, before any session work. Without `unfold()` the device shows up but streams are gated off; without the sleep, `createSession` can race the registration stream.
+- **Hinge-fold + source-swap coverage deferred to stage 4 (MDK test server, out-of-process).** Different transport — may behave differently. Real-device manual verification covers it in the meantime.
+
 ### Stage 2
 
 - **XCTest, not Swift Testing.** Xcode auto-generated a Swift Testing stub (`import Testing`, `@Test` macros) when the target was created. Replaced with XCTest for consistency with stages 3-4 — Meta's `MockDeviceKitTestCase` pattern (stage 3) and XCUITest (stage 4) are both XCTest-based, and mixing frameworks across stages would split the mental model. Swift Testing and XCTest can coexist in one target, so we can adopt Swift Testing later for individual files if it's clearly nicer.
