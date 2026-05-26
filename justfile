@@ -36,6 +36,68 @@ test:
     echo
     exit $overall
 
+# Detailed mode: per-test catalog grouped by tier, with each tier's purpose.
+test-detail:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    LOG_DIR=$(mktemp -d -t waza-tests-XXXXXX)
+    overall=0
+
+    echo "Running all four tiers (logs → $LOG_DIR)…"
+    (cd viewer && npm test -- --reporter=verbose) > "$LOG_DIR/unit.log" 2>&1 || overall=1
+    (cd viewer && npm run test:e2e) > "$LOG_DIR/e2e.log" 2>&1 || overall=1
+    (cd ios/WazaProto && xcodebuild test \
+        -project WazaProto.xcodeproj -scheme WazaProto \
+        -destination 'platform=iOS Simulator,name=iPhone 17' \
+        -parallel-testing-enabled NO -only-testing:WazaProtoTests) > "$LOG_DIR/ios-unit.log" 2>&1 || overall=1
+    (cd ios/WazaProto && xcodebuild test \
+        -project WazaProto.xcodeproj -scheme WazaProto \
+        -destination 'platform=iOS Simulator,name=iPhone 17' \
+        -parallel-testing-enabled NO -only-testing:WazaProtoUITests) > "$LOG_DIR/ios-ui.log" 2>&1 || overall=1
+
+    echo
+    echo "━━━ Test Catalog ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    echo
+    echo "unit (Vitest) — Vercel /api/token: invite verify, JWT mint, env validation, identity collisions"
+    grep -E '^ [✓✗] ' "$LOG_DIR/unit.log" \
+        | sed -E 's/^ ([✓✗]) [^>]+> [^>]+> (.+) ([0-9]+m?s)$/  \1 \2  (\3)/'
+
+    echo
+    echo "e2e (Playwright) — full pipeline: lk publisher → LiveKit SFU → browser <video> frames flowing"
+    grep -E '^[[:space:]]+[✓✘]' "$LOG_DIR/e2e.log" \
+        | sed -E 's|^[[:space:]]*([✓✘])[[:space:]]+[0-9]+[[:space:]]+\[[^]]+\][[:space:]]+›[[:space:]]+[^›]+[[:space:]]+›[[:space:]]+[^›]+[[:space:]]+›[[:space:]]+(.+)[[:space:]]+\(([^)]+)\)$|  \1 \2  (\3)|'
+
+    echo
+    echo "ios-unit (XCTest) — Secrets shape, RoomConnection.Status equality+labels, watcher filter, MDK smoke"
+    grep -E "^Test Case .* (passed|failed) " "$LOG_DIR/ios-unit.log" \
+        | sed -E "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' (passed|failed) \(([^ ]+) seconds\)\..*/\1|\2|\3|\4/" \
+        | awk -F'|' '
+            { cls=$1; name=$2; status=$3; time=$4
+              if (cls != last) { print "  " cls; last = cls }
+              marker = (status == "passed") ? "✓" : "✗"
+              printf "    %s %s  (%ss)\n", marker, name, time
+            }'
+
+    echo
+    echo "ios-ui (XCUITest) — app launch with --ui-testing → MDK mock pair → Connect button enables"
+    grep -E "^Test Case .* (passed|failed) " "$LOG_DIR/ios-ui.log" \
+        | sed -E "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' (passed|failed) \(([^ ]+) seconds\)\..*/\1|\2|\3|\4/" \
+        | awk -F'|' '
+            { cls=$1; name=$2; status=$3; time=$4
+              if (cls != last) { print "  " cls; last = cls }
+              marker = (status == "passed") ? "✓" : "✗"
+              printf "    %s %s  (%ss)\n", marker, name, time
+            }'
+
+    echo
+    if [ $overall -eq 0 ]; then
+        echo "All tiers passed. Logs: $LOG_DIR"
+    else
+        echo "One or more tiers FAILED. Inspect full logs in $LOG_DIR"
+    fi
+    exit $overall
+
 # Vitest unit suite for viewer/api/token.js.
 test-unit:
     cd viewer && npm test
@@ -49,7 +111,7 @@ test-ios-unit:
     cd ios/WazaProto && xcodebuild test \
       -project WazaProto.xcodeproj -scheme WazaProto \
       -destination 'platform=iOS Simulator,name=iPhone 17' \
-      -parallel-testing-enabled NO
+      -parallel-testing-enabled NO -only-testing:WazaProtoTests
 
 # iOS XCUITest (drives MDK test server through the SwiftUI Connect flow).
 test-ios-ui:
