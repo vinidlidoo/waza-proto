@@ -6,7 +6,7 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-*(none — pick the next rung)*
+- [08 — Automated test suite (local)](active/08-test-suite.md) — cross-cutting infra (not a build-ladder rung). Five staged tiers, all locally-runnable: Vercel token-mint (Vitest), iOS pure-logic XCTest, iOS XCTest against Meta's MockDeviceKit, iOS XCUITest via MDK's test server, browser viewer Playwright + `lk` publisher. Each stage gated by a deliberate-break verification. CI integration tracked separately in [features/ci-integration.md](features/ci-integration.md).
 
 ## Completed
 
