@@ -12,7 +12,7 @@ protocol VideoPublisher: AnyObject {
 }
 
 @MainActor
-final class RoomConnection: ObservableObject {
+final class RoomConnection: NSObject, ObservableObject {
     enum Source: String, CaseIterable, Identifiable {
         case frontCamera = "Front camera"
         case glasses = "Glasses"
@@ -39,9 +39,15 @@ final class RoomConnection: ObservableObject {
 
     @Published private(set) var status: Status = .disconnected
     @Published private(set) var localVideoTrack: VideoTrack?
+    @Published private(set) var watcherCount: Int = 0
 
     let room = Room()
     private var publisher: VideoPublisher?
+
+    override init() {
+        super.init()
+        room.add(delegate: self)
+    }
 
     func connect(source: Source, glasses: GlassesGateway) {
         Task {
@@ -50,6 +56,7 @@ final class RoomConnection: ObservableObject {
             self.publisher = publisher
             do {
                 try await room.connect(url: Secrets.wsURL, token: Secrets.token)
+                watcherCount = currentWatcherCount()
                 localVideoTrack = try await publisher.publish(to: room)
                 status = .connected
             } catch {
@@ -91,6 +98,7 @@ final class RoomConnection: ObservableObject {
             await room.disconnect()
             publisher = nil
             localVideoTrack = nil
+            watcherCount = 0
             status = .disconnected
         }
     }
@@ -108,6 +116,15 @@ final class RoomConnection: ObservableObject {
         }
     }
 
+    // Count only participants that look like our viewers (identity minted by
+    // api/token.js as `viewer-<8chars>`). Filters out stale ghosts and any
+    // future agent/system participants in the room.
+    private func currentWatcherCount() -> Int {
+        room.remoteParticipants.values.filter {
+            ($0.identity?.stringValue ?? "").hasPrefix("viewer-")
+        }.count
+    }
+
     private func handleGlassesTerminated() {
         // Called from GlassesSource's watchdog when its DAT DeviceSession ends
         // unexpectedly (e.g. hinge fold). Tear the LiveKit side down cleanly so
@@ -119,7 +136,18 @@ final class RoomConnection: ObservableObject {
             await room.disconnect()
             self.publisher = nil
             localVideoTrack = nil
+            watcherCount = 0
             status = .failed("Glasses session ended — unfold and reconnect")
         }
+    }
+}
+
+extension RoomConnection: RoomDelegate {
+    nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
+        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+    }
+
+    nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
+        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
     }
 }

@@ -19,3 +19,7 @@ ios/WazaProto/buildServer.json
 
 # Locally-generated test assets (regenerated on demand by scripts/publish-test-pattern.sh)
 assets/
+
+# Vercel project (viewer/)
+viewer/node_modules/
+viewer/.vercel/

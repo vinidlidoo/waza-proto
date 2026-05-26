@@ -29,6 +29,9 @@ cat > "$SECRETS_FILE" <<EOF
 enum Secrets {
     static let wsURL = "$LIVEKIT_URL"
     static let token = "$TOKEN"
+    // Shared HS256 secret with Vercel env var INVITE_SIGNING_SECRET. Used to
+    // sign per-invite JWTs that gate the viewer mint endpoint.
+    static let inviteSigningSecret = "$INVITE_SIGNING_SECRET"
 }
 EOF
 

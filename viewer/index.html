@@ -20,10 +20,8 @@
   <div id="video-slot"></div>
 
   <script type="module">
-    import { Room, RoomEvent, Track }
+    import { Room, RoomEvent, Track, DisconnectReason }
       from 'https://cdn.jsdelivr.net/npm/livekit-client/+esm';
-
-    const LIVEKIT_URL = 'wss://waza-proto-tygbql84.livekit.cloud';
 
     const statusEl = document.getElementById('status');
     const slotEl = document.getElementById('video-slot');
@@ -33,13 +31,30 @@
       statusEl.className = cls;
     }
 
-    const token = new URLSearchParams(location.search).get('token');
-    if (!token) {
-      setStatus('error: no ?token= in URL. Run ./scripts/mint-token.sh', 'error');
-      throw new Error('missing token');
+    const invite = new URLSearchParams(location.search).get('invite');
+    if (!invite) {
+      setStatus('this link is missing an invite — ask the publisher for a fresh URL', 'error');
+      throw new Error('missing invite');
+    }
+
+    async function fetchToken() {
+      const res = await fetch(`/api/token?invite=${encodeURIComponent(invite)}`);
+      if (res.ok) return res.json();
+      const { error } = await res.json().catch(() => ({ error: 'unknown' }));
+      throw new Error(error);
+    }
+
+    function showFetchError(err) {
+      const msg = {
+        missing_invite: 'this link is missing an invite — ask the publisher for a fresh URL',
+        invalid_invite: 'this link is invalid — ask the publisher for a fresh URL',
+        invite_expired: 'this link has expired (links last 3 hours) — ask the publisher for a fresh URL',
+      }[err.message] || `error: ${err.message}`;
+      setStatus(msg, 'error');
     }
 
     const room = new Room();
+    let reconnecting = false;
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (track.kind !== Track.Kind.Video) return;
@@ -57,18 +72,44 @@
       setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
     });
 
-    room.on(RoomEvent.Disconnected, () => setStatus('disconnected', 'error'));
+    room.on(RoomEvent.Disconnected, async (reason) => {
+      console.log('disconnected, reason:', reason);
+      // LiveKit JWT TTL is 10min; the invite envelope is 3h. On TOKEN_EXPIRED,
+      // try once to mint a fresh JWT — succeeds if the invite is still valid,
+      // surfaces invite_expired otherwise.
+      if (reason === DisconnectReason.TOKEN_EXPIRED && !reconnecting) {
+        reconnecting = true;
+        setStatus('token expired, refreshing…');
+        try {
+          const { token, url } = await fetchToken();
+          await room.connect(url, token);
+          setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+        } catch (err) {
+          showFetchError(err);
+        } finally {
+          reconnecting = false;
+        }
+        return;
+      }
+      setStatus('disconnected', 'error');
+    });
+
     room.on(RoomEvent.ConnectionStateChanged, (state) => {
       console.log('connection state:', state);
     });
 
     setStatus('connecting…');
     try {
-      await room.connect(LIVEKIT_URL, token);
+      const { token, url } = await fetchToken();
+      await room.connect(url, token);
       setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
     } catch (err) {
-      console.error(err);
-      setStatus(`error: ${err.message}`, 'error');
+      if (err.message && ['missing_invite', 'invalid_invite', 'invite_expired'].includes(err.message)) {
+        showFetchError(err);
+      } else {
+        console.error(err);
+        setStatus(`error: ${err.message}`, 'error');
+      }
     }
   </script>
 </body>

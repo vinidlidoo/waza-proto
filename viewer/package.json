@@ -1,0 +1,11 @@
+{
+  "name": "waza-proto-viewer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Hosted viewer + serverless invite-gated token mint for the waza-proto LiveKit room.",
+  "dependencies": {
+    "jose": "^5.9.6",
+    "livekit-server-sdk": "^2.9.7"
+  }
+}

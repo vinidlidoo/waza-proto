@@ -1,11 +1,13 @@
 import LiveKit
 import MWDATCore
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @StateObject private var connection = RoomConnection()
     @EnvironmentObject private var glasses: GlassesGateway
     @State private var source: RoomConnection.Source = .frontCamera
+    @State private var copyToast: String?
     @AppStorage("showDebug") private var showDebug: Bool = false
 
     var body: some View {
@@ -14,6 +16,17 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(alignment: .topTrailing) {
+                    if case .connected = connection.status, connection.watcherCount > 0 {
+                        Text("\(connection.watcherCount) watching")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.red.opacity(0.85), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(8)
+                    }
+                }
 
             Picker("Source", selection: $source) {
                 ForEach(RoomConnection.Source.allCases) { src in
@@ -42,10 +55,15 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
-                Text(connection.status.label)
+                Text(copyToast ?? connection.status.label)
                     .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(copyToast == nil ? Color.secondary : Color.green)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: copyViewerLink) {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
                 Button {
                     showDebug.toggle()
                 } label: {
@@ -61,6 +79,18 @@ struct ContentView: View {
         .onAppear {
             glasses.startObserving()
             Task { await glasses.refreshCameraPermission() }
+        }
+    }
+
+    private func copyViewerLink() {
+        let url = Config.viewerURL(invite: InviteToken.mint())
+        UIPasteboard.general.string = url.absoluteString
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let token = "Link copied (valid 3h)"
+        copyToast = token
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if copyToast == token { copyToast = nil }
         }
     }
 
