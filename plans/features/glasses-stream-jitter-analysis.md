@@ -20,7 +20,7 @@ The proposed fix is a small ring buffer between the in-app HEVC decoder and the 
 
 ## 1. Problem
 
-The Waza prototype publishes a sub-second POV video stream from Ray-Ban Meta glasses to a browser viewer. The pipeline has a **glasses-specific upstream segment** that feeds into a **shared downstream segment** also used by the iPhone front-camera baseline:
+This prototype publishes a sub-second POV video stream from Ray-Ban Meta glasses to a browser viewer. The pipeline has a **glasses-specific upstream segment** that feeds into a **shared downstream segment** also used by the iPhone front-camera baseline:
 
 ```text
             glasses                       iPhone front camera
@@ -75,7 +75,7 @@ I took **paired 3-minute runs** in the same room, on the same Wi-Fi, with the sa
 
 | Component | Version / Identifier |
 |---|---|
-| Publisher hardware | iPhone 17 (real device, not simulator) |
+| Publisher hardware | iPhone 17 |
 | Glasses hardware | Ray-Ban Meta Gen 2 |
 | Glasses SDK | Meta WDAT iOS 0.7 (`MWDATCore.framework`) |
 | Glasses config | `videoCodec: .hvc1`, `frameRate: 30` |
@@ -84,13 +84,7 @@ I took **paired 3-minute runs** in the same room, on the same Wi-Fi, with the sa
 | Viewer | Static HTML + LiveKit JS SDK |
 | Run duration | 3 minutes each |
 
-Run files referenced below (all under `profiler/`):
-
-- iOS Stage 2, paired HIGH baseline: `ios-2026-05-27T01-19-06Z.jsonl`
-- Viewer, front camera HIGH: `2026-05-27T01-19-27Z-frontCamera-a-viewer.jsonl`
-- Viewer, glasses HIGH: `2026-05-27T01-22-42Z-glasses-a-viewer.jsonl`
-- iOS Stage 2, MEDIUM sweep: `ios-2026-05-27T01-54-31Z.jsonl`
-- Viewer, glasses MEDIUM: `2026-05-27T01-54-55Z-glasses-a-viewer.jsonl`
+The numbers in §3 come from one paired HIGH run (front camera + glasses, same room and Wi-Fi back-to-back) plus a single MEDIUM glasses sweep done the same way.
 
 ## 3. Results
 
@@ -171,7 +165,7 @@ LiveKit encoder drop rate           7.1%              18.5%       (much worse)
 Two takeaways:
 
 1. **BT cadence is independent of bitrate.** The delivery jitter I'm seeing is not driven by hitting a throughput ceiling. It's more consistent with link-layer scheduling jitter: Bluetooth Classic uses 625 μs slots with master-decided polling intervals; the iPhone's 2.4 GHz radio shares time between BT and Wi-Fi; the DAT pipeline itself may buffer internally. Any of those produces bursts/stalls at the MAC layer regardless of how much data is flowing.
-2. **Smaller frames make encoder drops worse, not better.** The LiveKit encoder's drop decision is gated by *bitrate budget per second*, not CPU. A smaller target bitrate shrinks the per-burst headroom faster than smaller frames shrink the per-burst cost. So `.medium` reduced the budget and increased the drop rate. I reverted to `.high` following this analysis.
+2. **Smaller frames make encoder drops worse, not better.** The LiveKit encoder's drop decision is gated by *bitrate budget per second*, not CPU. A smaller target bitrate shrinks the per-burst headroom faster than smaller frames shrink the per-burst cost. So `.medium` reduced the budget and increased the drop rate.
 
 ## Next Steps
 
@@ -284,7 +278,7 @@ Two notes about this picture:
 | `frames_decoded_delta` | same | Frames successfully decoded by the browser's WebRTC stack. |
 | `frames_dropped_delta` | same | Frames received but not decoded (e.g. missing reference, corrupted). |
 | `packets_lost_delta`, `jitter_ms` | same | Receiver-side network loss and jitter. |
-| `jitter_buffer_target_delay_ms` | same | Cumulative WebRTC counter for chosen jitter-buffer depth (sum-over-frames). The analyzer reports the per-frame mean as `jb_perframe_ms` (= cumulative ÷ total decoded frames). |
+| `jitter_buffer_target_delay_ms` | same | Cumulative WebRTC counter for chosen jitter-buffer depth (sum-over-frames). The repo's analyzer ([`scripts/analyze-video-quality.js`](../../scripts/analyze-video-quality.js)) reports the per-frame mean as `jb_perframe_ms` (= cumulative ÷ total decoded frames). |
 
 ### Browser playout
 
@@ -293,13 +287,13 @@ Two notes about this picture:
 | `rendered_frames_delta` | `requestVideoFrameCallback` | Frames actually painted by the `<video>` element. |
 | `playout_dropped_frames_delta` | `HTMLVideoElement.getVideoPlaybackQuality()` | Frames decoded but not painted (newer frame already due, GPU pressure, etc.). |
 | `freeze_events_delta` | rVFC timestamps | `requestVideoFrameCallback` gaps >150 ms. |
-| `freeze_max_gap_ms` | rVFC timestamps | Largest such gap. **Currently cumulative-max within a run**, not per-window; the analyzer takes the max across windows correctly but the field name is misleading. |
+| `freeze_max_gap_ms` | rVFC timestamps | Largest such gap. **Cumulative-max within a run**, not per-window; the analyzer takes the max across windows correctly but the field name is misleading. |
 
 ## Appendix C — Caveats and instrumentation limits
 
-**Things I can measure but interpret with care.**
+**Things I can measure but have to interpret carefully.**
 
-- `freeze_max_gap_ms` is cumulative-max-since-start within a run, so every window in a single run reports the same value (the worst gap observed so far). Analyzer's max-across-windows reducer is correct; the raw per-window number is not. Pending fix.
+- `freeze_max_gap_ms` is cumulative-max-since-start within a run, so every window in a single run reports the same value (the worst gap observed so far). The analyzer's max-across-windows reducer gives the right run-level number; the raw per-window field is not safe to interpret on its own.
 - `jitter_buffer_target_delay_ms` is a cumulative WebRTC counter, scaling with run duration. The analyzer (`scripts/analyze-video-quality.js`) divides by total `frames_decoded` and reports the per-frame mean as `jb_perframe_ms`.
 - `quality_limitation_reason: none` means WebRTC isn't sustained-limited, not that no input frames were dropped. Short-burst encoder drops show up only as `frames_encoded_delta` < `capturer_frames_delta`.
 
@@ -310,7 +304,7 @@ Two notes about this picture:
 - **Glasses-side encoding.** No visibility into the on-glasses encoder's actual output cadence or PTS spacing.
 - **LiveKit's internal frame-drop decision.** I observe the net effect (`frames_encoded_delta` < `capturer_frames_delta`) but not the per-frame "encoded vs dropped" tag.
 
-These limits matter for sharing the report externally: where I say "BT Classic delivery cadence is bursty," I mean "the cadence I observe at the first app-accessible point downstream of the BT link is bursty, and the bandwidth-sweep evidence rules out throughput saturation as the cause." I cannot localize it to a specific layer of the BT/DAT stack from app-side instrumentation alone.
+A note on terminology, given the above: where this report says "BT Classic delivery cadence is bursty," what's actually measured is the cadence at the first app-accessible point downstream of the BT link — the `videoFramePublisher` callback. The bandwidth-sweep evidence in §4.2 rules out throughput saturation as the cause, but the burstiness cannot be localized to a specific layer of the BT/DAT stack from app-side instrumentation alone.
 
 ## Appendix D — Frame types primer
 
@@ -322,4 +316,4 @@ H.264 and HEVC streams are sequences of **access units**, each of which decodes 
 
 **Implications for the metrics in this report.** Every counter that says "frames" counts access units, regardless of type — `dat_callbacks_delta` counts I-frames and P-frames the same way, `frames_encoded_delta` likewise. In the steady state with no losses (which is my situation), `dat_callbacks ≈ decoded_frames ≈ capturer_frames`.
 
-**Implication for failure modes.** Losing an I-frame is much worse than losing a P-frame: every subsequent P that references the missing I (or chains back to it via other Ps) is undecodable, causing either visible corruption or a stall until the next keyframe arrives. In this analysis I observed neither (0 packet loss, 0 decode errors), so frame-type discrimination wasn't necessary. It will become necessary when the smoothing buffer lands — the buffer's overrun-drop policy needs to prefer dropping P-frames over I-frames to avoid breaking the prediction chain.
+**Implication for failure modes.** Losing an I-frame is much worse than losing a P-frame: every subsequent P that references the missing I (or chains back to it via other Ps) is undecodable, causing either visible corruption or a stall until the next keyframe arrives. In this analysis I observed neither (0 packet loss, 0 decode errors), so frame-type discrimination wasn't necessary for the finding. It does become necessary for the proposed smoothing buffer — its overrun-drop policy needs to prefer dropping P-frames over I-frames to avoid breaking the prediction chain.
