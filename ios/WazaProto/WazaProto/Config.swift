@@ -18,6 +18,6 @@ enum Config {
     // of glass-to-glass latency (pull period at 30 fps). 0 = bypass entirely
     // (legacy pre-plan-12 path; VT decode callback calls capturer.capture
     // directly). Revert toward 0 as WDAT delivery cadence improves upstream.
-    static let glassesSmoothingDepth = 4
+    static let glassesSmoothingDepth = 2
     static let glassesSmoothingMaxDepth = 6
 }

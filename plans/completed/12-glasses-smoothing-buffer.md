@@ -161,12 +161,41 @@ Run the analyzer post-capture and compare encoder drop rate (derived from `frame
 
 ## Decisions logged during implementation
 
-_(populate during implementation — buffer-thread choice, depth winner, any deviation from spec)_
+- **CADisplayLink runs on a dedicated `Thread` with its own `CFRunLoop`.** Not the main run loop (busy UI would stall the pump) and not the DAT/VT callback thread (push side). `CFRunLoopGetCurrent()` captured inside the worker block, `CFRunLoopStop()` called from main is the cross-thread shutdown signal; `link.invalidate()` happens on the pump thread after `CFRunLoopRun()` returns. Pinned to 30 fps via `preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)` so the ProMotion display doesn't accelerate the pull cadence.
+- **Configurable depth via `Config.glassesSmoothingDepth`.** Default = 2 (winning value, see below). 0 = full bypass: `GlassesSource` skips creating the smoother + pump entirely and the VT decode callback feeds `BufferCapturer.capture(...)` directly. This is the pre-plan-12 path, preserved as an escape hatch for when WDAT upstream improves and the workaround becomes unnecessary. `maxDepth = 6` is fixed; `primeDepth` floats with the Config knob.
+- **Pull-time timestamps replace original PTS** at `capturer.capture(_:timeStampNs:rotation:)`. The encoder uses inter-frame PTS deltas for rate decisions; handing it the original DAT-side PTS during a stall would surface the burstiness the buffer is supposed to mask. Pump-time `ProcessInfo.systemUptime * 1e9` is monotonic and evenly spaced.
+- **Encoder-drop-rate metric is misleading post-buffer; use "drops excluding underruns".** When the buffer underruns (DAT stall longer than current depth), the pump re-publishes the last delivered `CVPixelBuffer`. The LiveKit encoder declines to encode bit-identical repeats, which inflates `(capturer_frames_delta − frames_encoded_delta)` without representing actual unique-frame loss. Plan 11's "<2%" acceptance criterion didn't account for this. The new `scripts/compare-profile-runs.js` reports both raw and `(drops − underruns) / (pulls − underruns)`; the latter is the right denominator for "did the buffer cause real frame loss?". At the winning depth=2 in matched-regime testing, the corrected metric is **0.0%**.
+- **Stage 2 sweep was confounded by BT Classic cadence variability.** First attempt at depth=2 landed in a transiently better DAT regime (mean 29.9 fps vs the 23.8 fps baseline regime) and even briefly auto-promoted to the true `.high` rung (720×1280) mid-run — a behavior plan 11's (C) decision log said was undocumented (Meta only describes downward demotion). Required re-running both depth=0 (re-baseline in current regime) and depth=2 to land matched-regime data. Lesson: BT Classic cadence varies on minute-scale timescales independent of anything the app does, and single-run-per-config can mis-attribute the buffer's contribution to upstream regime drift.
+- **Depth=6 not tested.** Latency math at depth=6 (~233 ms added) was self-evidently outside the comfortable budget for v0.05's sub-second target, and depth=2 vs depth=4 already showed the buffer operates in the same steady state regardless of priming depth in this regime (both at p50=1, p95=3 frames). The extra priming would not have produced additional smoothing.
+- **Depth=2 chosen as the winner.** Apples-to-apples paired runs (matched DAT regime, 23.86 fps mean, 504×896 throughout):
+  - viewer freezes 45 → **10** at d=2 (vs 22 at d=4)
+  - worst viewer freeze 1437 ms → **323 ms** at d=2 (vs 444 ms at d=4)
+  - encoder unique-frame drops 7.4% → **0.0%** at both d=2 and d=4
+  - remote jitter 29 ms → **6 ms** at both d=2 and d=4
+  - buffer steady-state occupancy: p50=1, p95=3 frames at **both** d=2 and d=4 — extra priming buys no additional smoothing in this regime
+  - latency added: ~100 ms at d=2 vs ~167 ms at d=4
+  d=2 wins on every axis we can measure. The extra depth at d=4 would matter only if push rate ≥ pull rate (clean DAT regime), but in that regime there are no stalls to mask either.
+- **Encoder pacing becomes the bottleneck when DAT delivers cleanly.** Observed once during the contaminated depth=2 run that auto-promoted to 720×1280: with DAT pumping at ~30 fps and the buffer keeping the encoder fed steadily, the encoder dropped ~20% of *unique* frames despite `quality_limitation_reason: none`. Confirms the pre-implementation note that the encoder's adaptive frame-rate target caps throughput. Adding explicit `VideoEncoding(maxFps: 30, maxBitrate: …)` to `VideoPublishOptions` would likely fix this; left out per pre-implementation scope decision. Worth revisiting if WDAT improves and the encoder bottleneck becomes the dominant remaining cost.
 
 ## Handoff notes
 
-_(populate after Stage 1 ships — file paths of paired runs, observed deltas vs baseline, debug findings)_
+Run files captured during plan 12 work, all on `.high` + 30 fps, same room / Wi-Fi:
+
+| run | iOS | viewer |
+|---|---|---|
+| Stage 1 d=4 (yesterday's DAT regime, ~24 fps) | `profiler/ios-2026-05-27T19-02-50Z.jsonl` | `profiler/2026-05-27T19-03-55Z-glasses-a-viewer.jsonl` |
+| matched-regime d=0 baseline | `profiler/ios-2026-05-27T19-51-05Z.jsonl` | `profiler/2026-05-27T19-51-40Z-glasses-a-viewer.jsonl` |
+| matched-regime d=2 (winner) | `profiler/ios-2026-05-27T19-57-14Z.jsonl` | `profiler/2026-05-27T19-57-45Z-glasses-a-viewer.jsonl` |
+| matched-regime d=4 | `profiler/ios-2026-05-27T20-14-33Z.jsonl` | `profiler/2026-05-27T20-15-16Z-glasses-a-viewer.jsonl` |
+
+Generate the comparison report any time:
+
+```sh
+node scripts/compare-profile-runs.js profiler/*.jsonl
+```
+
+Full write-up (results, design walkthrough, code snippets) lives in [features/glasses-stream-buffer-sweep.md](../features/glasses-stream-buffer-sweep.md).
 
 ## Status
 
-Promoted from `plans/features/glasses-smoothing-buffer.md` on 2026-05-27 after plan 11 closed. Stage 1 not yet started.
+Closed 2026-05-27. Shipping Stage 1 (the buffer + pump) + Stage 2 outcome (depth=2 winner) on branch `plan/12-glasses-smoothing-buffer`. Depth=0 bypass remains in place as an escape hatch for when WDAT upstream cadence improves.
