@@ -8,7 +8,7 @@ VideoPublishOptions(simulcast: false,
                     preferredBackupCodec: .h264)
 ```
 
-This is **purely a codec change for the WebRTC encoder inside the Swift SDK**. It doesn't remove the decode step that step 7 introduces in `GlassesSource` — the SDK still takes raw `CVPixelBuffer`s as input. To actually skip the decode + re-encode, see [[encoded-frame-ingest]].
+This is **purely a codec change for the WebRTC encoder inside the Swift SDK**. It doesn't remove the decode step that step 7 introduces in `GlassesSource` — the SDK still takes raw `CVPixelBuffer`s as input. To actually skip the decode + re-encode, see [encoded-frame-ingest.md](encoded-frame-ingest.md).
 
 **Why.** ~30-50% bitrate reduction at the same visual quality, which matters on weak Wi-Fi and LTE. On iPhone, encode CPU is the same (VideoToolbox HW path either way).
 

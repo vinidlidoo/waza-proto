@@ -1,6 +1,6 @@
 # Encoded-frame ingest (true HEVC pass-through)
 
-**What.** Pass DAT's `.hvc1` `CMSampleBuffer`s directly to the LiveKit room **without decoding in our app and without LiveKit re-encoding**. The cleanest possible glasses-to-viewer path: one HW encode on the glasses, one network hop, browser HW decode. This is fundamentally different from [[h265-publish]], which still does decode + re-encode in our app.
+**What.** Pass DAT's `.hvc1` `CMSampleBuffer`s directly to the LiveKit room **without decoding in our app and without LiveKit re-encoding**. The cleanest possible glasses-to-viewer path: one HW encode on the glasses, one network hop, browser HW decode. This is fundamentally different from [h265-publish.md](h265-publish.md), which still does decode + re-encode in our app.
 
 **Why.** Eliminates the HW decode + HW encode per frame on the iPhone. Lower CPU, lower battery, slightly lower latency, no transcoding quality loss. Today's pipeline does both because LiveKit's `BufferCapturer` only accepts raw pixel formats.
 
@@ -39,4 +39,4 @@ Architecture:
 
 ## Pairing with H.265 publish
 
-Both Path A and Path B compose naturally with [[h265-publish]] — once we're sending pre-encoded HEVC end-to-end, the publish codec is decided by what the glasses produce. The codec-swap roadmap entry is independent and stand-alone (works today via Swift SDK alone); the pass-through entry is the bigger architectural shift.
+Both Path A and Path B compose naturally with [h265-publish.md](h265-publish.md) — once we're sending pre-encoded HEVC end-to-end, the publish codec is decided by what the glasses produce. The codec-swap roadmap entry is independent and stand-alone (works today via Swift SDK alone); the pass-through entry is the bigger architectural shift.
