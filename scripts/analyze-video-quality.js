@@ -49,7 +49,7 @@ for (const summary of summaries) {
   bySourceSide.get(key).push(summary);
 }
 
-console.log('source       side     runs  sent_fps  bitrate_mbps  recv_fps  lost_pkts  dropped  freezes  max_freeze_ms  stalls  incomplete');
+console.log('source       side     runs  sent_fps  bitrate_mbps  recv_fps  lost_pkts  dropped  freezes  max_freeze_ms  jb_perframe_ms  stalls  incomplete');
 for (const [key, group] of [...bySourceSide.entries()].sort()) {
   const [source, side] = key.split(':');
   console.log([
@@ -63,6 +63,7 @@ for (const [key, group] of [...bySourceSide.entries()].sort()) {
     fmt(sum(group.map((r) => r.droppedFrames))).padStart(8),
     fmt(sum(group.map((r) => r.freezeEvents))).padStart(8),
     fmt(max(group.map((r) => r.maxFreezeMs))).padStart(13),
+    fmt(median(group.map((r) => r.jitterBufferPerFrameMs))).padStart(14),
     fmt(sum(group.map((r) => r.stallWindows))).padStart(7),
     String(group.filter((r) => r.incomplete).length).padStart(10),
   ].join('  '));
@@ -79,6 +80,13 @@ function defaultProfilerFiles() {
 }
 
 function summarizeRun(run) {
+  // jitter_buffer_target_delay_ms is a cumulative WebRTC counter (sum-since-start),
+  // not a per-window delta. Last value / total decoded frames = mean per-frame buffer depth.
+  const cumulativeTargetDelay = max(run.windows.map((m) => m.jitter_buffer_target_delay_ms));
+  const totalDecoded = sum(run.windows.map((m) => m.frames_decoded_delta));
+  const jitterBufferPerFrameMs = (cumulativeTargetDelay != null && totalDecoded)
+    ? cumulativeTargetDelay / totalDecoded
+    : null;
   return {
     ...run,
     sentFps: median(run.windows.map((m) => m.outbound_fps)),
@@ -88,6 +96,7 @@ function summarizeRun(run) {
     droppedFrames: sum(run.windows.map((m) => m.frames_dropped_delta ?? m.playout_dropped_frames_delta)),
     freezeEvents: sum(run.windows.map((m) => m.freeze_events_delta)),
     maxFreezeMs: max(run.windows.map((m) => m.freeze_max_gap_ms)),
+    jitterBufferPerFrameMs,
     stallWindows: run.windows.filter((m) => m.frames_encoded_delta === 0).length,
   };
 }

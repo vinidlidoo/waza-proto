@@ -263,10 +263,10 @@ Stage 2 verdict:
 
 - Skip Stage 3 (per-frame PTS / decode-latency probes). Decode is already proven clean (0 errors, 0 rebuilds, full parity); finer-grained timing wouldn't change the verdict.
 - Investigation complete. Root cause identified: BT Classic delivery cadence (documented adaptive-ladder behavior, see (C) and (A) in the decisions log).
-- Fix is a separate feature: [[glasses-smoothing-buffer]] — small ring buffer + display-link pump between DAT decode and `BufferCapturer.capture(...)` to absorb DAT bursts/stalls. Tracked in `plans/features.md`; plan 11 closes here.
+- Fix is a separate feature: [glasses-smoothing-buffer.md](../features/glasses-smoothing-buffer.md) — small ring buffer + display-link pump between DAT decode and `BufferCapturer.capture(...)` to absorb DAT bursts/stalls. Tracked in `plans/features.md`; plan 11 closes here.
 
 Known analyzer caveats:
 
 - `incomplete=true` is expected when the human manually stops a 3-minute run instead of letting the exact timer expire; the windows are still usable.
 - `freeze_events_delta` counts viewer render gaps over 150ms. `freeze_max_gap_ms` is the largest gap observed so far in the run.
-- `jitter_buffer_target_delay_ms` currently reflects WebRTC's cumulative field converted to milliseconds; do not interpret it as a per-window instantaneous delay until the analyzer converts it to a delta/ratio.
+- `jitter_buffer_target_delay_ms` is a cumulative WebRTC counter; the analyzer now reports the per-frame mean as `jb_perframe_ms` (cumulative ÷ total decoded frames). Per-window instantaneous depth is still not exposed.
