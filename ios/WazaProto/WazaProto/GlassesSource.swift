@@ -79,9 +79,10 @@ final class GlassesSource: VideoPublisher {
         let firstFrame = AsyncStream<Void> { continuation in
             var fired = false
             var decompressionSession: VTDecompressionSession?
-            var fpsWindowStart = CFAbsoluteTimeGetCurrent()
-            var fpsWindowFrames = 0
+            let counters = GlassesProfilerCounters.shared
+            counters.reset()
             self.frameToken = stream.videoFramePublisher.listen { frame in
+                counters.recordCallback()
                 let sampleBuffer = frame.sampleBuffer
                 guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
 
@@ -112,9 +113,11 @@ final class GlassesSource: VideoPublisher {
                     )
                     if status == noErr {
                         decompressionSession = session
+                        counters.recordDecoderRebuild()
                         let dims = CMVideoFormatDescriptionGetDimensions(formatDescription)
                         print("[glasses] decoder (re)built for \(dims.width)x\(dims.height)")
                     } else {
+                        counters.recordDecodeError()
                         print("[glasses] VTDecompressionSessionCreate failed: \(status)")
                         return
                     }
@@ -128,26 +131,19 @@ final class GlassesSource: VideoPublisher {
                 ) { status, _, imageBuffer, presentationTimeStamp, _ in
                     guard status == noErr, let imageBuffer else {
                         if status != noErr {
-                            print("[glasses] decode error status=\(status)")
+                            counters.recordDecodeError()
                         }
                         return
                     }
+                    counters.recordDecodedFrame()
                     let timeStampNs = Int64(presentationTimeStamp.seconds * 1_000_000_000)
                     capturer.capture(imageBuffer, timeStampNs: timeStampNs, rotation: ._0)
+                    counters.recordCapturedFrame()
                     if !fired {
                         fired = true
                         continuation.yield()
                         continuation.finish()
                     }
-                }
-                fpsWindowFrames += 1
-                let now = CFAbsoluteTimeGetCurrent()
-                let elapsed = now - fpsWindowStart
-                if elapsed >= 1.0 {
-                    let fps = Double(fpsWindowFrames) / elapsed
-                    print(String(format: "[glasses] decode fps=%.1f", fps))
-                    fpsWindowStart = now
-                    fpsWindowFrames = 0
                 }
             }
         }
