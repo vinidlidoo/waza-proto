@@ -127,8 +127,8 @@ final class RoomConnection: NSObject, ObservableObject {
     }
 
     // Count only participants that look like our viewers (identity minted by
-    // api/token.js as `viewer-<8chars>`). Filters out stale ghosts and any
-    // future agent/system participants in the room.
+    // api/viewer-token.js as `viewer-<8chars>`). Filters out stale ghosts and
+    // any future agent/system participants in the room.
     private func currentWatcherCount() -> Int {
         Self.watcherCount(identities: room.remoteParticipants.values.map {
             $0.identity?.stringValue ?? ""

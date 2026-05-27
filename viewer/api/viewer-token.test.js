@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SignJWT, decodeJwt } from 'jose';
-import handler from './token.js';
+import handler from './viewer-token.js';
 
 const TEST_INVITE_SECRET = 'test-invite-secret-do-not-use-in-prod';
 const TEST_LIVEKIT_KEY = 'APItest1234567890';
@@ -27,7 +27,7 @@ function mockResponse() {
   };
 }
 
-describe('viewer/api/token handler', () => {
+describe('viewer/api/viewer-token handler', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
