@@ -6,7 +6,7 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-*(no active plans)*
+- [10 — Long-session JWT auto-refresh](active/10-jwt-auto-refresh.md) — rotate the iOS publisher's LiveKit JWT in-band so backgrounded glasses sessions hold the publish track across the underlying token TTL. New Vercel mint endpoint gated by a publisher-specific HS256 secret; Swift app holds the seed in `Secrets.swift` and exchanges short auth envelopes for fresh LiveKit JWTs. Retires the baked-in 6h token in `Secrets.swift`.
 
 ## Completed
 
