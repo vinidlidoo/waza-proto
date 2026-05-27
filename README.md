@@ -1,16 +1,18 @@
 # Waza Proto
 
-Smallest possible end-to-end demonstration that the Waza streaming architecture works: live POV video from Ray-Ban Meta glasses to a remote browser, sub-second latency, on our own infrastructure.
+End-to-end prototype: live POV video from Ray-Ban Meta glasses to a remote browser, sub-second latency, on owned infrastructure (no RTMP/HLS in the path).
 
-This is the **v0.05** rung on the Waza experiment ladder — a step between v0.0 (WhatsApp POV proof) and v0.1 (translation overlay). The goal is to retire WhatsApp from the loop and own the streaming stack end-to-end.
+Built as one rung of [Waza](https://github.com/vinidlidoo/protos/blob/main/Waza%20%E2%80%94%20Live,%20hands-on%20tutoring%20through%20smart%20glasses.md), an exploration of live, hands-on tutoring through smart glasses. The streaming pipeline is the load-bearing piece and may be a useful reference for anyone building POV streams off Ray-Ban Meta.
 
-## What we're building
+**Featured write-up:** [Ray-Ban Meta glasses video stream — jitter root-cause analysis](plans/features/glasses-stream-jitter-analysis.md). End-to-end characterization of where the glasses POV stream diverges from a clean baseline (the iPhone front camera through the same downstream pipeline), with the full instrumentation methodology and per-stage metric tables. A companion open question is posted as [discussion #199](https://github.com/facebook/meta-wearables-dat-ios/discussions/199) on Meta's DAT iOS repo.
+
+## Architecture
 
 ```
 Ray-Ban Meta Gen 2
         │ Bluetooth Classic (Meta WDAT SDK)
         ▼
-iPhone app (Swift, uses LiveKit Swift SDK)
+iPhone app (Swift, LiveKit Swift SDK)
         │ WebRTC over UDP, sub-second
         ▼
 LiveKit Cloud (signaling + SFU + STUN + TURN)
@@ -19,31 +21,37 @@ LiveKit Cloud (signaling + SFU + STUN + TURN)
 Browser viewer on Mac (LiveKit JS SDK + plain HTML)
 ```
 
-A learner wearing the glasses moves around the kitchen. A laptop in another room shows the POV feed at <500ms latency. That's it.
+Someone wearing the glasses moves around; a laptop in another room shows the POV feed at <500 ms latency. That's it.
 
 ## Why this architecture
 
-- **WebRTC, not RTMP.** RTMP → HLS = 10–20s glass-to-pixel. Fatal for the correction loop Waza needs. The Streamhand-style path was evaluated and rejected for this reason.
-- **LiveKit, not pure P2P.** Skips writing signaling, STUN, TURN, and the SFU ourselves. Free tier covers prototype traffic.
-- **iOS first (not Android).** WDAT preview SDK shipped on iOS; Android support reportedly less mature as of early 2026.
+- **WebRTC, not RTMP.** RTMP → HLS = 10–20 s glass-to-pixel — fatal for any real-time correction loop. The Streamhand-style path was evaluated and rejected for this reason.
+- **LiveKit, not pure P2P.** Skips writing signaling, STUN, TURN, and the SFU. Free tier covers prototype traffic.
+- **iOS first (not Android).** WDAT preview SDK shipped on iOS; Android support was less mature as of early 2026.
 
 ## Prerequisites
 
-- [x] Wearables Developer Center account + registered app. Self-serve at <https://wearables.developer.meta.com/>. SDK itself is public on SPM (<https://github.com/facebook/meta-wearables-dat-ios>).
-- [ ] Apple Developer account ($99/yr). **Defer until step 4** — free Apple ID sideloading via Xcode is likely enough for foreground-only dev. Pay only if WDAT SDK requires a paid provisioning profile, or once background operation is needed.
-- [x] Xcode (latest stable) on Mac.
-- [x] LiveKit Cloud account (free tier).
-- [x] Ray-Ban Meta Gen 2 paired with personal iPhone running iOS 17+.
+- Wearables Developer Center account + registered app. Self-serve at <https://wearables.developer.meta.com/>. SDK itself is public on SPM: <https://github.com/facebook/meta-wearables-dat-ios>.
+- Apple Developer account ($99/yr) — only needed for background streaming or TestFlight. Free Apple ID sideloading via Xcode is enough for foreground-only dev.
+- Xcode (latest stable) on Mac.
+- LiveKit Cloud account (free tier covers prototype traffic).
+- Ray-Ban Meta Gen 2 paired with an iPhone running iOS 17+.
 
 ## Build ladder
 
-Order chosen so each step validates one slice of the pipeline. If something breaks, the failure is localized.
+The repo is organized around staged validation — each step exercises one slice of the pipeline so failures are localized. Implementation notes for each step live in [`plans/completed/`](plans/completed/); the [plans index](plans/index.md) is the progressive-disclosure summary.
 
-1. **Set up LiveKit Cloud.** Create project, copy URL + API key + secret. ~10 min.
-2. **Browser viewer with hardcoded JWT.** Plain HTML, LiveKit JS SDK via CDN. Subscribes to a hardcoded room name, attaches any incoming video to a `<video>` element. JWT minted locally via CLI script. ~1 hour.
-3. **Test viewer with LiveKit CLI's fake publisher.** `livekit-cli` ships a "publish a test pattern" command. Confirms the subscriber path works before any iOS code. ~30 min.
-4. **iOS shell with LiveKit Swift SDK, publishing the iPhone's built-in front camera.** Confirms iOS publish path, token mint, and end-to-end view in the browser. *No WDAT yet.* ~2–3 hours.
-5. **Swap iPhone front camera for WDAT glasses frames.** Wire WDAT's frame callback into LiveKit's custom video source (`RTCVideoSource`). Pixel format conversion is the load-bearing piece — likely `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange` → `RTCVideoFrame`. ~4–8 hours, depending on WDAT SDK ergonomics.
+1. **LiveKit Cloud setup.** Project, URL, API key + secret.
+2. **Browser viewer with hardcoded JWT.** Plain HTML + LiveKit JS via CDN, subscribes to a hardcoded room.
+3. **Test publisher via `livekit-cli`.** Confirms the subscriber path before any native code.
+4. **iOS shell publishing the iPhone front camera** via LiveKit Swift SDK. No WDAT yet.
+5. **Glasses frames via WDAT** in place of the front camera. WDAT's `videoFramePublisher` callback feeds LiveKit's `BufferCapturer`; HEVC is decoded in-app via `VTDecompressionSession` so LiveKit's H.264 encoder can take over.
+6. **Shareable viewer link** with per-invite HS256 token mint, deployed at `waza-proto.vercel.app`.
+7. **Background streaming.** Keeps publishing while the iPhone app is backgrounded or screen-locked.
+8. **Local test suite.** Vitest + XCTest + XCUITest + Playwright; one `just test` runs all tiers.
+9. **App icon.**
+10. **Publisher JWT minted at connect time.** Long-lived JWT in `Secrets.swift` replaced with on-demand mint via `/api/publisher-token`, gated by HS256 signing seeds.
+11. **Video-quality profiling.** End-to-end JSONL profiler (publisher + viewer) that pinpointed the BT-cadence root cause; see the featured write-up at the top of this README.
 
 ## Testing
 
@@ -62,11 +70,11 @@ With [`just`](https://github.com/casey/just) installed (`brew install just`), `j
     -destination 'platform=iOS Simulator,name=iPhone 17' \
     -parallel-testing-enabled NO -only-testing:WazaProtoUITests
   ```
-  The first runs `WazaProtoTests` (Secrets shape validation, `PublisherTokenClient` HS256 envelope, `RoomConnection.Status` equality + labels, viewer-identity filter helper, MockDeviceKit smoke test). The second runs `WazaProtoUITests` (launches the app with `--ui-testing`, drives Meta's Mock Device test server, asserts the SwiftUI Connect button enables once the mock pair propagates). Requires `Secrets.swift` — run `./scripts/refresh-secrets.sh` first on a fresh checkout; the script reads `INVITE_SIGNING_SECRET` and `PUBLISHER_SIGNING_SECRET` from repo-root `.env` (generate each with `openssl rand -hex 32`, also add to Vercel project env). The script no longer mints a LiveKit JWT — the app fetches one from `/api/publisher-token` at connect time. `-parallel-testing-enabled NO` keeps tests on the explicitly-booted simulator; cloned-simulator parallel runs have been flaky for us on iOS 26.5.
+  The first runs `WazaProtoTests` (Secrets shape validation, `PublisherTokenClient` HS256 envelope, `RoomConnection.Status` equality + labels, viewer-identity filter helper, MockDeviceKit smoke test). The second runs `WazaProtoUITests` (launches the app with `--ui-testing`, drives Meta's Mock Device test server, asserts the SwiftUI Connect button enables once the mock pair propagates). Requires `Secrets.swift` — run `./scripts/refresh-secrets.sh` first on a fresh checkout; the script reads `INVITE_SIGNING_SECRET` and `PUBLISHER_SIGNING_SECRET` from repo-root `.env` (generate each with `openssl rand -hex 32`, also add to Vercel project env). The script no longer mints a LiveKit JWT — the app fetches one from `/api/publisher-token` at connect time. `-parallel-testing-enabled NO` keeps tests on the explicitly-booted simulator; cloned-simulator parallel runs have been flaky on iOS 26.5.
 
 ## Profiling
 
-The glasses feed jitters and stutters where the iPhone front camera doesn't. To measure (rather than guess) where the divergence lives, the project ships a paired-run profiler that captures one second of stats per side per window across the LiveKit boundary and inside `GlassesSource`. Full design + findings: [plan 11](plans/completed/11-video-quality-profiling.md). Tracked fix: [glasses smoothing buffer](plans/features/glasses-smoothing-buffer.md).
+The glasses feed jitters and stutters where the iPhone front camera doesn't. To measure (rather than guess) where the divergence lives, the project ships a paired-run profiler that captures one second of stats per side per window across the LiveKit boundary and inside `GlassesSource`. Full design + findings: [plan 11](plans/completed/11-video-quality-profiling.md). Headline writeup: [jitter root-cause analysis](plans/features/glasses-stream-jitter-analysis.md). Proposed fix: [glasses smoothing buffer](plans/features/glasses-smoothing-buffer.md).
 
 Run a paired profile (3-min front-camera + 3-min glasses, back-to-back, same room/network):
 
@@ -84,27 +92,19 @@ What gets measured (one JSON object per second per side, schema in plan 11):
 Output files land in `profiler/` (gitignored), named `ios-<UTC>.jsonl` and `<UTC>-<source>-<a/b/c>-viewer.jsonl` and keyed by a shared `run_id`. Re-aggregate any time:
 
 ```sh
-node scripts/analyze-video-quality.js                 # all runs in profiler/
+node scripts/analyze-video-quality.js                  # all runs in profiler/
 node scripts/analyze-video-quality.js profiler/<file>  # specific files
 ```
 
-The analyzer prints a comparison table grouping runs by `source × side` with median sent/received fps, total dropped/freeze counts, worst freeze gap, and publish-stall window count.
+The analyzer prints a comparison table grouping runs by `source × side` with median sent/received fps, total dropped/freeze counts, worst freeze gap, per-frame jitter-buffer delay, and publish-stall window count.
 
-## Open questions
+## What this prototype doesn't cover
 
-- **WDAT frame format and surface.** Does the iOS WDAT SDK hand frames as `CMSampleBuffer`, `CVPixelBuffer`, or something else? What pixel format? At what cadence?
-- **Audio path back to learner.** WDAT exposes the glasses speakers as a standard Bluetooth headset. iOS audio session config is a separate concern from LiveKit; needs to be wired up so the guide's voice plays through the glasses. Not in scope for v0.05 (one-way video only), but mark for v0.06.
-- **Resolution and bitrate trade-off.** WDAT caps at 720×1280 portrait @ 30fps; LiveKit will adapt bitrate per subscriber. Worth measuring what knife-angle detail actually survives the pipeline.
+- Audio from viewer back to publisher (one-way video only).
+- Live translation, recording, multi-party rooms.
+- Annotations or overlays rendered into the wearer's lens — WDAT does not expose HUD output on any Meta glasses model, including the Display.
 
-## Out of scope (deliberately)
-
-- Audio back from guide to learner. (v0.06)
-- Live translation. (v0.1)
-- Recording. (v0.2 via LiveKit egress)
-- Annotations or overlays rendered into the learner's lens. (WDAT does not expose HUD output on any model, including the Display.)
-- Multi-party rooms. (v0.2)
-
-The point of v0.05 is to validate one thing — the one-way POV stream on our own infra — and nothing else.
+The point is to validate one thing — the one-way POV stream on owned infrastructure — and nothing else.
 
 ## References
 
@@ -113,4 +113,8 @@ The point of v0.05 is to validate one thing — the one-way POV stream on our ow
 - LiveKit Cloud: <https://livekit.io>
 - LiveKit Swift SDK: <https://github.com/livekit/client-sdk-swift>
 - LiveKit JS SDK: <https://github.com/livekit/client-sdk-js>
-- Streamhand (RTMP-based alternative evaluated and rejected): <https://thestreamhand.com/guides/meta-glasses>
+- Streamhand (RTMP-based alternative, evaluated and rejected): <https://thestreamhand.com/guides/meta-glasses>
+
+## License
+
+MIT — see [LICENSE](LICENSE).
