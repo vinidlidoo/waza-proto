@@ -59,7 +59,7 @@ test-detail:
     echo "━━━ Test Catalog ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     echo
-    echo "unit (Vitest) — Vercel /api/token: invite verify, JWT mint, env validation, identity collisions"
+    echo "unit (Vitest) — Vercel /api/viewer-token: invite verify, JWT mint, env validation, identity collisions"
     grep -E '^ [✓✗] ' "$LOG_DIR/unit.log" \
         | sed -E 's/^ ([✓✗]) [^>]+> [^>]+> (.+) ([0-9]+m?s)$/  \1 \2  (\3)/'
 
@@ -98,7 +98,7 @@ test-detail:
     fi
     exit $overall
 
-# Vitest unit suite for viewer/api/token.js.
+# Vitest unit suite for viewer/api/viewer-token.js.
 test-unit:
     cd viewer && npm test
 

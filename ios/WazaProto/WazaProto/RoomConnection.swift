@@ -47,8 +47,10 @@ final class RoomConnection: NSObject, ObservableObject {
     // of UIBackgroundModes. See livekit/client-sdk-swift#832.
     let room = Room(roomOptions: RoomOptions(suspendLocalVideoTracksInBackground: false))
     private var publisher: VideoPublisher?
+    private let tokenClient: PublisherTokenClient
 
-    override init() {
+    init(tokenClient: PublisherTokenClient = PublisherTokenClient()) {
+        self.tokenClient = tokenClient
         super.init()
         room.add(delegate: self)
     }
@@ -59,7 +61,8 @@ final class RoomConnection: NSObject, ObservableObject {
             let publisher = makePublisher(source: source, glasses: glasses)
             self.publisher = publisher
             do {
-                try await room.connect(url: Secrets.wsURL, token: Secrets.token)
+                let minted = try await tokenClient.mint()
+                try await room.connect(url: minted.url, token: minted.token)
                 watcherCount = currentWatcherCount()
                 // Publish the mic to activate an AVAudioSession — iOS only
                 // honors UIBackgroundModes=audio's network keepalive while an
@@ -127,8 +130,8 @@ final class RoomConnection: NSObject, ObservableObject {
     }
 
     // Count only participants that look like our viewers (identity minted by
-    // api/token.js as `viewer-<8chars>`). Filters out stale ghosts and any
-    // future agent/system participants in the room.
+    // api/viewer-token.js as `viewer-<8chars>`). Filters out stale ghosts and
+    // any future agent/system participants in the room.
     private func currentWatcherCount() -> Int {
         Self.watcherCount(identities: room.remoteParticipants.values.map {
             $0.identity?.stringValue ?? ""

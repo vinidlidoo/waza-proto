@@ -3,8 +3,8 @@
 # Reads LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env at repo root.
 # Prints only the token to stdout. Called by scripts/refresh-secrets.sh.
 #
-# Viewer JWTs are minted on-demand by viewer/api/token.js (Vercel) — gated
-# by per-invite HS256 tokens; not handled here.
+# Viewer JWTs are minted on-demand by viewer/api/viewer-token.js (Vercel) —
+# gated by per-invite HS256 tokens; not handled here.
 
 set -euo pipefail
 

@@ -2,9 +2,9 @@ import CryptoKit
 import Foundation
 
 /// Mints HS256-signed viewer-invite JWTs, validated server-side by the Vercel
-/// `/api/token` endpoint. Key material is shared with the Vercel env var
-/// `INVITE_SIGNING_SECRET` and treated as a UTF-8 string on both sides so the
-/// HMAC inputs match without a base64-decode step.
+/// `/api/viewer-token` endpoint. Key material is shared with the Vercel env
+/// var `INVITE_SIGNING_SECRET` and treated as a UTF-8 string on both sides so
+/// the HMAC inputs match without a base64-decode step.
 enum InviteToken {
     static func mint(ttl: TimeInterval = 3 * 60 * 60) -> String {
         let now = Int(Date().timeIntervalSince1970)
