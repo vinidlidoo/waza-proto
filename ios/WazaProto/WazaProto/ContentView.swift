@@ -47,7 +47,7 @@ struct ContentView: View {
                 connection.switchSource(to: newSource, glasses: glasses)
             }
 
-            if source == .glasses, !glasses.isReady {
+            if source == .glasses, showGlassesGate {
                 glassesGate
             }
             if showDebug {
@@ -95,7 +95,30 @@ struct ContentView: View {
         }
     }
 
+    /// What action the Glasses tab needs from the user before we can connect.
+    /// Single source of truth for the pre-connect gate: `glassesGate` renders
+    /// it, `showGlassesGate` checks emptiness, and `statusLabel` defers to
+    /// it. We deliberately do NOT proactively prompt for camera permission:
+    /// `cameraPermission` reads nil whenever the BT link is down, which would
+    /// paint a "Grant camera access" button in states where camera access
+    /// isn't actually the blocker (e.g. glasses just off-link, or a fresh
+    /// install where the permission has simply never been asked yet). The
+    /// Meta SDK surfaces the prompt itself when `session.start` runs, which
+    /// is the moment it actually matters.
+    private enum GlassesGateAction {
+        case none
+        case register
+    }
+
+    private var glassesGateAction: GlassesGateAction {
+        glasses.registrationState != .registered ? .register : .none
+    }
+
+    private var showGlassesGate: Bool { glassesGateAction != .none }
+
     private var statusLabel: String {
+        // While a gate row is up, it carries the messaging — don't double up.
+        guard !showGlassesGate else { return connection.status.label }
         if source == .glasses,
            case .disconnected = connection.status,
            glasses.activeDeviceID == nil {
@@ -122,23 +145,14 @@ struct ContentView: View {
 
     @ViewBuilder
     private var glassesGate: some View {
-        VStack(spacing: 8) {
-            if glasses.registrationState != .registered {
-                gateRow(
-                    title: "Register with Meta AI",
-                    action: { Task { await glasses.register() } }
-                )
-            } else if glasses.activeDeviceID != nil,
-                      glasses.cameraPermission != .granted {
-                // Only prompt for camera access once a device is actually
-                // online. cameraPermission can read nil while the link is
-                // down, which would push the user toward the wrong fix; the
-                // "don the glasses" hint is surfaced via the status label.
-                gateRow(
-                    title: "Grant camera access",
-                    action: { Task { await glasses.requestCameraAccess() } }
-                )
-            }
+        switch glassesGateAction {
+        case .none:
+            EmptyView()
+        case .register:
+            gateRow(
+                title: "Register with Meta AI",
+                action: { Task { await glasses.register() } }
+            )
         }
     }
 
@@ -234,17 +248,23 @@ struct ContentView: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        switch connection.status {
-        case .disconnected, .failed:
-            Button("Connect") { connection.connect(source: source, glasses: glasses) }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canConnect)
-        case .connecting, .switching:
-            ProgressView()
-        case .connected:
-            Button("Disconnect", role: .destructive, action: connection.disconnect)
-                .buttonStyle(.bordered)
+        // Fixed height across all three states (Connect, ProgressView,
+        // Disconnect) so the preview area above doesn't change size as we
+        // transition through .connecting / .switching.
+        Group {
+            switch connection.status {
+            case .disconnected, .failed:
+                Button("Connect") { connection.connect(source: source, glasses: glasses) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canConnect)
+            case .connecting, .switching:
+                ProgressView()
+            case .connected:
+                Button("Disconnect", role: .destructive, action: connection.disconnect)
+                    .buttonStyle(.bordered)
+            }
         }
+        .frame(height: 50)
     }
 }
 
