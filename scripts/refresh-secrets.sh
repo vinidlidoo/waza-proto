@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Regenerate ios/WazaProto/WazaProto/Secrets.swift with the current LiveKit
-# wsURL (from .env) and a fresh 6h publisher JWT (from mint-publisher-token.sh).
+# Regenerate ios/WazaProto/WazaProto/Secrets.swift from .env.
 #
-# Re-run whenever the JWT in the iOS app stops working.
+# Writes only the long-lived HS256 signing secrets the app needs to mint
+# short-lived JWTs at runtime (viewer invites + publisher tokens). LiveKit
+# wsURL and publisher JWT are no longer baked in — the app fetches both
+# from the Vercel /api/publisher-token endpoint at connect time.
 
 set -euo pipefail
 
@@ -20,18 +22,16 @@ set -a
 source "$ENV_FILE"
 set +a
 
-TOKEN=$("$REPO_ROOT/scripts/mint-publisher-token.sh")
-
 cat > "$SECRETS_FILE" <<EOF
 // Gitignored. Regenerate via: ./scripts/refresh-secrets.sh
-// JWT expires every 6h.
 
 enum Secrets {
-    static let wsURL = "$LIVEKIT_URL"
-    static let token = "$TOKEN"
     // Shared HS256 secret with Vercel env var INVITE_SIGNING_SECRET. Used to
     // sign per-invite JWTs that gate the viewer mint endpoint.
     static let inviteSigningSecret = "$INVITE_SIGNING_SECRET"
+    // Shared HS256 secret with Vercel env var PUBLISHER_SIGNING_SECRET. Used
+    // to sign short-lived envelopes that gate the publisher mint endpoint.
+    static let publisherSigningSecret = "$PUBLISHER_SIGNING_SECRET"
 }
 EOF
 

@@ -249,7 +249,7 @@
     }
 
     async function fetchToken() {
-      const res = await fetch(`/api/token?invite=${encodeURIComponent(invite)}`);
+      const res = await fetch(`/api/viewer-token?invite=${encodeURIComponent(invite)}`);
       if (res.ok) return res.json();
       const { error } = await res.json().catch(() => ({ error: 'unknown' }));
       throw new Error(error);

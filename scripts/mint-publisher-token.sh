@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Mint the iOS publisher's long-lived LiveKit JWT for the waza-proto room.
-# Reads LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env at repo root.
-# Prints only the token to stdout. Called by scripts/refresh-secrets.sh.
+# Mint a 6h LiveKit publisher JWT for the waza-proto room. Standalone dev
+# utility — the iOS app fetches publisher tokens from /api/publisher-token at
+# runtime (plan 10); this script is for ad-hoc CLI testing (e.g. piping into
+# `lk room join --token`).
 #
-# Viewer JWTs are minted on-demand by viewer/api/token.js (Vercel) — gated
-# by per-invite HS256 tokens; not handled here.
+# Reads LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env at repo
+# root. Prints only the token to stdout. Viewer JWTs are minted on-demand by
+# viewer/api/viewer-token.js (Vercel) and are not handled here.
 
 set -euo pipefail
 
