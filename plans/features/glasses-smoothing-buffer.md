@@ -18,6 +18,10 @@ DAT listener (bursty, 0–49 fps observed)
 
 A smoothing buffer fixes both with one piece of state: bursts get queued instead of dropped at the encoder; stalls get masked by replaying the most recent frame from the buffer until DAT resumes.
 
+**Read first:** [glasses-stream-jitter-analysis.md](glasses-stream-jitter-analysis.md) is the executive write-up of the findings that motivate this fix — the per-stage tables in §3 are what the acceptance criteria below compare against.
+
+**Open dependency:** [meta-wearables-dat-ios discussion #199](https://github.com/facebook/meta-wearables-dat-ios/discussions/199) asks Meta whether the burstiness is BT-link inherent or smoothable inside DAT. If they confirm an SDK-side fix is planned, the value of shipping the workaround drops sharply — check the thread before committing. As of writing (2026-05-27), no response yet.
+
 **Why not now / when.** Plan 11's scope was *instrumentation* — answer "where does glasses diverge from front camera". Stage 1 + Stage 2 answered it; the fix is a separate feature so plan 11 can close cleanly. Pick this up next after closing plan 11.
 
 ## Design notes
