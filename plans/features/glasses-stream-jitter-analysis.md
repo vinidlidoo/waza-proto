@@ -94,38 +94,38 @@ All values are per-window medians unless suffixed `(total)` (3-minute sum) or `(
 
 | Stage | Metric | front camera | glasses HIGH | glasses MED |
 |---|---|---:|---:|---:|
-| **1. DAT delivery** | callback fps | — | 23.83 | 23.88 |
+| **1. DAT delivery** | callback fps | — | **23.83** | **23.88** |
 | | callbacks (total) | — | 4,311 | 4,375 |
 | | inter-frame gap p50 ms | — | 33.63 | 35.19 |
-| | inter-frame gap p95 ms | — | 86.20 | 85.50 |
+| | inter-frame gap p95 ms | — | **86.20** | **85.50** |
 | | inter-frame gap max ms (worst) | — | **633.59** | **695.03** |
 | **2. In-app decode** | decoder rebuilds (total) | — | 0 | 0 |
 | | decode errors (total) | — | 0 | 0 |
 | | decoded frames (total) | — | 4,310 | 4,374 |
 | **3. Capturer hand-off** | capturer frames (total) | — | 4,310 | 4,374 |
-| **4. LiveKit encode** | outbound fps | 30 | 23 | 20 |
+| **4. LiveKit encode** | outbound fps | 30 | **23** | **20** |
 | | frames encoded (total) | 5,277 | 4,002 | 3,566 |
 | | encoder-drop rate | **0%** | **7.1%** | **18.5%** |
 | | bitrate (median, Mbps) | 1.70 | 0.78 | 0.44 |
 | | resolution | 720×1280 | 504×896 | 360×640 |
 | | quality\_limitation reason | none | none | none |
-| **5. Network (RTCP)** | remote jitter ms | 5.48 | 22.64 | 23.38 |
+| **5. Network (RTCP)** | remote jitter ms | 5.48 | **22.64** | **23.38** |
 | | round-trip time ms | 58.25 | 58.70 | 58.07 |
 
 ### 3b. Browser viewer side
 
 | Stage | Metric | front camera | glasses HIGH | glasses MED |
 |---|---|---:|---:|---:|
-| **6. WebRTC ingress** | inbound fps | 30 | 24 | 20 |
+| **6. WebRTC ingress** | inbound fps | 30 | **24** | **20** |
 | | frames decoded (total) | 5,255 | 3,965 | 3,507 |
 | | frames dropped (total) | 0 | 0 | 0 |
 | | packets lost (total) | 0 | 0 | 0 |
-| | jitter ms | 7 | 21 | 23 |
-| | jitter-buffer per-frame delay ms | 23.4 | **102.7** | 119.9 |
+| | jitter ms | 7 | **21** | **23** |
+| | jitter-buffer per-frame delay ms | 23.4 | **102.7** | **119.9** |
 | **7. `<video>` playout** | rendered frames (total) | 5,131 | 3,377 | 3,236 |
-| | playout-dropped frames | 94 (1.8%) | 234 (5.9%) | 112 (3.2%) |
-| | freeze events (total) | 2 | **54** | 25 |
-| | worst freeze ms | 5,898¹ | 993 | 5,145 |
+| | playout-dropped frames | 94 (1.8%) | **234 (5.9%)** | **112 (3.2%)** |
+| | freeze events (total) | 2 | **54** | **25** |
+| | worst freeze ms | 5,898¹ | **993** | **5,145** |
 
 ¹ One-off browser/OS suspend during the front-camera baseline run; unrelated to the publisher path.
 
