@@ -32,6 +32,9 @@ enum Secrets {
     // Shared HS256 secret with Vercel env var INVITE_SIGNING_SECRET. Used to
     // sign per-invite JWTs that gate the viewer mint endpoint.
     static let inviteSigningSecret = "$INVITE_SIGNING_SECRET"
+    // Shared HS256 secret with Vercel env var PUBLISHER_SIGNING_SECRET. Used
+    // to sign short-lived envelopes that gate the publisher mint endpoint.
+    static let publisherSigningSecret = "$PUBLISHER_SIGNING_SECRET"
 }
 EOF
 

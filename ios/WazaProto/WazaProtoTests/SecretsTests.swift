@@ -33,6 +33,15 @@ final class SecretsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(decoded.count, 32, "HS256 requires ≥256 bits of key material")
     }
 
+    func testPublisherSigningSecretMeetsHS256Strength() throws {
+        XCTAssertFalse(Secrets.publisherSigningSecret.isEmpty)
+        let decoded = try XCTUnwrap(
+            Data(base64Encoded: Secrets.publisherSigningSecret),
+            "publisherSigningSecret must be base64-decodable"
+        )
+        XCTAssertGreaterThanOrEqual(decoded.count, 32, "HS256 requires ≥256 bits of key material")
+    }
+
     // MARK: - Helpers
 
     private func base64URLDecode(_ s: String) -> Data? {
