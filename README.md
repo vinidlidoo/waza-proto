@@ -2,9 +2,7 @@
 
 End-to-end prototype: live POV video from Ray-Ban Meta glasses to a remote browser, sub-second latency, on owned infrastructure (no RTMP/HLS in the path).
 
-Built as one rung of [Waza](https://github.com/vinidlidoo/protos/blob/main/Waza%20%E2%80%94%20Live,%20hands-on%20tutoring%20through%20smart%20glasses.md), an exploration of live, hands-on tutoring through smart glasses. The streaming pipeline is the load-bearing piece and may be a useful reference for anyone building POV streams off Ray-Ban Meta.
-
-**Featured write-up:** [Ray-Ban Meta glasses video stream — jitter root-cause analysis](plans/features/glasses-stream-jitter-analysis.md). End-to-end characterization of where the glasses POV stream diverges from a clean baseline (the iPhone front camera through the same downstream pipeline), with the full instrumentation methodology and per-stage metric tables. A companion open question is posted as [discussion #199](https://github.com/facebook/meta-wearables-dat-ios/discussions/199) on Meta's DAT iOS repo.
+The streaming pipeline is the load-bearing piece and may be a useful reference for anyone building POV streams off Ray-Ban Meta.
 
 ## Architecture
 
@@ -22,12 +20,6 @@ Browser viewer on Mac (LiveKit JS SDK + plain HTML)
 ```
 
 Someone wearing the glasses moves around; a laptop in another room shows the POV feed at <500 ms latency. That's it.
-
-## Why this architecture
-
-- **WebRTC, not RTMP.** RTMP → HLS = 10–20 s glass-to-pixel — fatal for any real-time correction loop. The Streamhand-style path was evaluated and rejected for this reason.
-- **LiveKit, not pure P2P.** Skips writing signaling, STUN, TURN, and the SFU. Free tier covers prototype traffic.
-- **iOS first (not Android).** WDAT preview SDK shipped on iOS; Android support was less mature as of early 2026.
 
 ## Prerequisites
 
@@ -108,12 +100,10 @@ The point is to validate one thing — the one-way POV stream on owned infrastru
 
 ## References
 
-- Waza brief: [Live, hands-on tutoring through smart glasses](https://github.com/vinidlidoo/protos/blob/main/Waza%20%E2%80%94%20Live,%20hands-on%20tutoring%20through%20smart%20glasses.md)
 - Meta Wearables Device Access Toolkit (developer preview): <https://developers.meta.com/horizon/develop/wearables/>
 - LiveKit Cloud: <https://livekit.io>
 - LiveKit Swift SDK: <https://github.com/livekit/client-sdk-swift>
 - LiveKit JS SDK: <https://github.com/livekit/client-sdk-js>
-- Streamhand (RTMP-based alternative, evaluated and rejected): <https://thestreamhand.com/guides/meta-glasses>
 
 ## License
 
