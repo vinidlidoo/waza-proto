@@ -40,11 +40,19 @@ final class GlassesSource: VideoPublisher {
         self.bufferTrack = bufferTrack
         let capturer = bufferTrack.capturer as! BufferCapturer
 
-        let smoother = FrameSmoothingBuffer()
-        let pump = SmoothingBufferPump(buffer: smoother, capturer: capturer)
-        self.smoother = smoother
-        self.pump = pump
-        pump.start()
+        let smoothingDepth = Config.glassesSmoothingDepth
+        let smoother: FrameSmoothingBuffer? = smoothingDepth > 0
+            ? FrameSmoothingBuffer(maxDepth: Config.glassesSmoothingMaxDepth, primeDepth: smoothingDepth)
+            : nil
+        if let smoother {
+            let pump = SmoothingBufferPump(buffer: smoother, capturer: capturer)
+            self.smoother = smoother
+            self.pump = pump
+            pump.start()
+            print("[glasses] smoothing buffer enabled (depth=\(smoothingDepth))")
+        } else {
+            print("[glasses] smoothing buffer bypassed (depth=0)")
+        }
 
         print("[glasses] createSession()…")
         let session = try wearables.createSession(deviceSelector: deviceSelector)
@@ -138,7 +146,7 @@ final class GlassesSource: VideoPublisher {
                     sampleBuffer: sampleBuffer,
                     flags: [],
                     infoFlagsOut: nil
-                ) { status, _, imageBuffer, _, _ in
+                ) { status, _, imageBuffer, presentationTimeStamp, _ in
                     guard status == noErr, let imageBuffer else {
                         if status != noErr {
                             counters.recordDecodeError()
@@ -146,12 +154,21 @@ final class GlassesSource: VideoPublisher {
                         return
                     }
                     counters.recordDecodedFrame()
-                    // Smoother decouples the LiveKit encoder's input cadence
-                    // from DAT's bursty delivery. The pump thread pulls at a
-                    // steady 30 fps and calls capturer.capture(...) with a
-                    // pull-time timestamp; the original PTS is intentionally
-                    // discarded so the encoder sees evenly-spaced frames.
-                    smoother.push(imageBuffer)
+                    if let smoother {
+                        // Smoother decouples the LiveKit encoder's input cadence
+                        // from DAT's bursty delivery. The pump thread pulls at
+                        // 30 fps and calls capturer.capture(...) with a
+                        // pull-time timestamp; the original PTS is intentionally
+                        // discarded so the encoder sees evenly-spaced frames.
+                        smoother.push(imageBuffer)
+                    } else {
+                        // Bypass (Config.glassesSmoothingDepth == 0): pre-plan-12
+                        // path — VT decode callback feeds BufferCapturer directly,
+                        // encoder sees DAT's bursty cadence.
+                        let timeStampNs = Int64(presentationTimeStamp.seconds * 1_000_000_000)
+                        capturer.capture(imageBuffer, timeStampNs: timeStampNs, rotation: ._0)
+                        counters.recordCapturedFrame()
+                    }
                     if !fired {
                         fired = true
                         continuation.yield()
