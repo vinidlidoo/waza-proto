@@ -49,7 +49,7 @@ for (const summary of summaries) {
   bySourceSide.get(key).push(summary);
 }
 
-console.log('source       side     runs  sent_fps  bitrate_mbps  recv_fps  lost_pkts  dropped  freezes  incomplete');
+console.log('source       side     runs  sent_fps  bitrate_mbps  recv_fps  lost_pkts  dropped  freezes  max_freeze_ms  stalls  incomplete');
 for (const [key, group] of [...bySourceSide.entries()].sort()) {
   const [source, side] = key.split(':');
   console.log([
@@ -62,6 +62,8 @@ for (const [key, group] of [...bySourceSide.entries()].sort()) {
     fmt(sum(group.map((r) => r.lostPackets))).padStart(9),
     fmt(sum(group.map((r) => r.droppedFrames))).padStart(8),
     fmt(sum(group.map((r) => r.freezeEvents))).padStart(8),
+    fmt(max(group.map((r) => r.maxFreezeMs))).padStart(13),
+    fmt(sum(group.map((r) => r.stallWindows))).padStart(7),
     String(group.filter((r) => r.incomplete).length).padStart(10),
   ].join('  '));
 }
@@ -85,6 +87,8 @@ function summarizeRun(run) {
     lostPackets: sum(run.windows.map((m) => m.packets_lost_delta ?? m.remote_packets_lost_delta)),
     droppedFrames: sum(run.windows.map((m) => m.frames_dropped_delta ?? m.playout_dropped_frames_delta)),
     freezeEvents: sum(run.windows.map((m) => m.freeze_events_delta)),
+    maxFreezeMs: max(run.windows.map((m) => m.freeze_max_gap_ms)),
+    stallWindows: run.windows.filter((m) => m.frames_encoded_delta === 0).length,
   };
 }
 
@@ -102,6 +106,11 @@ function median(values) {
 function sum(values) {
   const nums = clean(values);
   return nums.length === 0 ? null : nums.reduce((total, value) => total + value, 0);
+}
+
+function max(values) {
+  const nums = clean(values);
+  return nums.length === 0 ? null : Math.max(...nums);
 }
 
 function fmt(value) {

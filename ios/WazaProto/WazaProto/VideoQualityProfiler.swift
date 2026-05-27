@@ -3,7 +3,7 @@ import LiveKit
 
 final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
     static let dataTopic = "waza.profile"
-    static let stage = 1
+    static let stage = 2
 
     private static let processStartEpochMs = Int64(
         (Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime) * 1000
@@ -16,6 +16,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
     private var lastBytesSent: UInt64?
     private var lastFramesEncoded: UInt?
     private var lastRemotePacketsLost: Int64?
+    private var lastGlassesSnapshot: GlassesProfilerCounters.Snapshot?
 
     func attach(to track: VideoTrack?) {
         lock.lock()
@@ -29,12 +30,16 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
 
     func start(runID: String, source: String, durationMs: Int) -> Data? {
         let run = Run(runID: runID, source: source, durationMs: durationMs)
+        // Drain stale glasses counters / gaps accumulated before this run so
+        // the first window's deltas measure only post-start activity.
+        let glassesBaseline = source == "glasses" ? GlassesProfilerCounters.shared.snapshot() : nil
         lock.lock()
         self.run = run
         lastWindowStartMs = nil
         lastBytesSent = nil
         lastFramesEncoded = nil
         lastRemotePacketsLost = nil
+        lastGlassesSnapshot = glassesBaseline
         lock.unlock()
 
         emit([
@@ -66,6 +71,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
         lastBytesSent = nil
         lastFramesEncoded = nil
         lastRemotePacketsLost = nil
+        lastGlassesSnapshot = nil
         lock.unlock()
 
         guard let ended else { return nil }
@@ -114,7 +120,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
 
         let bitrateBps = bytesDelta.map { Int64(Double($0) * 8_000.0 / Double(windowDurationMs)) }
 
-        let metrics: [String: Any] = [
+        var metrics: [String: Any] = [
             "outbound_width": value(outbound?.frameWidth),
             "outbound_height": value(outbound?.frameHeight),
             "outbound_fps": value(outbound?.framesPerSecond),
@@ -130,6 +136,10 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             "remote_jitter_ms": value(remoteInbound?.jitter.map { $0 * 1000.0 }),
             "remote_round_trip_time_ms": value(remoteInbound?.roundTripTime.map { $0 * 1000.0 }),
         ]
+
+        if run.source == "glasses" {
+            mergeGlassesMetrics(into: &metrics, windowDurationMs: windowDurationMs)
+        }
 
         let event: [String: Any] = [
             "schema_version": 1,
@@ -171,6 +181,46 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
         defer { previous = current }
         guard let current, let previous else { return nil }
         return current >= previous ? current - previous : nil
+    }
+
+    // Caller holds `lock`. Snapshots the shared glasses counters, computes
+    // per-window deltas against the previous snapshot, and merges in DAT/
+    // decoder fields. First window after start() has nil deltas (baseline).
+    private func mergeGlassesMetrics(into metrics: inout [String: Any], windowDurationMs: Int64) {
+        let snap = GlassesProfilerCounters.shared.snapshot()
+        if let prev = lastGlassesSnapshot {
+            let callbacksDelta = snap.callbacks &- prev.callbacks
+            let datFps = Double(callbacksDelta) * 1000.0 / Double(windowDurationMs)
+            metrics["dat_callback_fps"] = datFps
+            metrics["dat_callbacks_delta"] = Int64(callbacksDelta)
+            metrics["decoder_rebuilds_delta"] = Int64(snap.decoderRebuilds &- prev.decoderRebuilds)
+            metrics["decode_errors_delta"] = Int64(snap.decodeErrors &- prev.decodeErrors)
+            metrics["decoded_frames_delta"] = Int64(snap.decodedFrames &- prev.decodedFrames)
+            metrics["capturer_frames_delta"] = Int64(snap.capturedFrames &- prev.capturedFrames)
+        } else {
+            metrics["dat_callback_fps"] = NSNull()
+            metrics["dat_callbacks_delta"] = NSNull()
+            metrics["decoder_rebuilds_delta"] = NSNull()
+            metrics["decode_errors_delta"] = NSNull()
+            metrics["decoded_frames_delta"] = NSNull()
+            metrics["capturer_frames_delta"] = NSNull()
+        }
+        if snap.gapsMs.isEmpty {
+            metrics["dat_interframe_gap_p50_ms"] = NSNull()
+            metrics["dat_interframe_gap_p95_ms"] = NSNull()
+            metrics["dat_interframe_gap_max_ms"] = NSNull()
+        } else {
+            let sorted = snap.gapsMs.sorted()
+            metrics["dat_interframe_gap_p50_ms"] = Self.percentile(sorted, 0.5)
+            metrics["dat_interframe_gap_p95_ms"] = Self.percentile(sorted, 0.95)
+            metrics["dat_interframe_gap_max_ms"] = sorted.last!
+        }
+        lastGlassesSnapshot = snap
+    }
+
+    private static func percentile(_ sorted: [Double], _ p: Double) -> Double {
+        let idx = min(sorted.count - 1, max(0, Int((Double(sorted.count) * p).rounded(.up)) - 1))
+        return sorted[idx]
     }
 
     private struct Run {

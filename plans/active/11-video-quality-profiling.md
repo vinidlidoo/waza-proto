@@ -210,6 +210,12 @@ profiler/                      NEW - gitignored local JSONL run output
 - **The automation wrapper builds before opening the viewer.** An early smoke test opened the viewer before reinstalling/launching the app, which let the human start a front-camera run before iOS stdout capture was attached. The wrapper now builds/installs first, then starts the local viewer, opens the invite URL, launches the app with console capture, and only then prints the manual-step prompt.
 - **Stage 1 smoke and one long paired run completed.** Latest long run files are `profiler/ios-2026-05-27T00-27-25Z.jsonl`, `profiler/2026-05-27T00-27-50Z-frontCamera-a-viewer.jsonl`, and `profiler/2026-05-27T00-31-00Z-glasses-a-viewer.jsonl`. The analyzer reported front camera at 30 fps / 1.70 Mbps with 1 viewer freeze, and glasses at 23 fps / 0.75 Mbps with 59 viewer freezes.
 - **Plan number is 11.** Other sessions are occupying earlier active-plan slots, so this plan was promoted as `plans/active/11-video-quality-profiling.md`.
+- **Analyzer surfaces stall windows and worst freeze gap.** Added two columns: `stalls` counts iOS windows with `frames_encoded_delta == 0` (canonical publish-stall signal — `outbound_fps == null` alone fires on the baseline-less first window). `max_freeze_ms` reduces the per-window monotonic `freeze_max_gap_ms` to the worst single-run peak in a group. The latest 3-min glasses run reported 2 stall windows and a 2506ms peak viewer freeze.
+- **Stage 2 ships as a shared `GlassesProfilerCounters` singleton.** Hot-path writes (DAT listener + VideoToolbox decode callback) increment NSLock-protected cumulative counters; `VideoQualityProfiler.track(...)` snapshots once per window and computes deltas with the same pattern already used for `bytesSent` / `framesEncoded`. Picking a singleton over plumbing the counters through `RoomConnection` keeps `GlassesSource` ownership untouched at the cost of one shared instance — acceptable because only one glasses source is live at a time.
+- **DAT inter-frame gaps use `ProcessInfo.systemUptime`, not `CFAbsoluteTimeGetCurrent`.** The latter is wall-clock and can step on calendar adjustments; systemUptime is monotonic. Gaps are accumulated per callback and drained on each snapshot.
+- **Stage-2 metrics omitted from front-camera windows.** `dat_*`, `decoder_*`, `decoded_*`, `capturer_*` apply only to glasses; emitting them as null on front-camera windows would imply they're available but unmeasured. The schema rule about null-not-omit applies to fields the analyzer expects per source; the analyzer already tolerates missing fields.
+- **Stage-2 `start()` drains the counters once to clear gaps accumulated since the listener was installed.** Otherwise the first window after a delayed run-start would attribute pre-run gaps to window 1. This also sets the baseline snapshot, so the first window's deltas are nil (same convention as `lastBytesSent`).
+- **Pre-existing `[glasses] decode fps=...` and `decode error status=...` prints removed.** They overlapped with the new `dat_callback_fps` and `decode_errors_delta` fields. Lifecycle messages (`[glasses] decoder (re)built for WxH`, `VTDecompressionSessionCreate failed`) stay — they carry context the counters don't (dimensions, OSStatus).
 
 ## Handoff notes
 
@@ -227,9 +233,32 @@ If device detection fails, pass `DEVICE_ID=<udid>`. If the app is already instal
 Latest Stage 1 interpretation:
 
 - Front camera holds 30 fps at both iOS sender and viewer; viewer freezes are rare.
-- Glasses sender stats already show lower cadence: median outbound FPS around 23 and median bitrate around 0.75 Mbps in the latest long run.
-- Glasses viewer receives roughly the same FPS as iOS sends, with no packet loss in the analyzer table, but many render freezes.
-- This makes the next likely investigation pre-LiveKit or at the glasses-to-publisher boundary: add Stage 2 aggregate `GlassesSource` counters for DAT callback cadence, decode success/error counts, decoder rebuilds, decoded frames, and frames handed to `BufferCapturer`.
+- Glasses sender stats already show lower cadence: median outbound FPS around 23 and median bitrate around 0.75 Mbps in the latest long run, with 2 publish-stall windows.
+- Glasses viewer receives roughly the same FPS as iOS sends, with no packet loss in the analyzer table, but many render freezes — peak gap 2506ms.
+- This makes the next likely investigation pre-LiveKit or at the glasses-to-publisher boundary: Stage 2 (now shipped) measures DAT callback cadence, decode success/error counts, decoder rebuilds, decoded frames, and frames handed to `BufferCapturer`.
+
+Stage 2 status:
+
+- Code shipped in `GlassesProfilerCounters.swift`, with writes in `GlassesSource.swift` and per-window reads in `VideoQualityProfiler.swift`. `stage` bumped to 2.
+- New JSONL fields on glasses windows: `dat_callback_fps`, `dat_callbacks_delta`, `dat_interframe_gap_p50_ms`, `dat_interframe_gap_p95_ms`, `dat_interframe_gap_max_ms`, `decoder_rebuilds_delta`, `decode_errors_delta`, `decoded_frames_delta`, `capturer_frames_delta`. First window after `start()` reports the deltas as null (baseline snapshot); subsequent windows are meaningful.
+- First 3-min paired Stage 2 run collected: `profiler/ios-2026-05-27T01-19-06Z.jsonl`, `profiler/2026-05-27T01-19-27Z-frontCamera-a-viewer.jsonl`, `profiler/2026-05-27T01-22-42Z-glasses-a-viewer.jsonl`. Both runs complete (`incomplete: false`), 178/179 windows.
+
+Stage 2 findings (`profiler/ios-2026-05-27T01-19-06Z.jsonl`):
+
+- **Root cause = DAT delivery.** `dat_callback_fps` p25/p50/p75 = 21.8 / 23.8 / 25.5, configured for 30. 100/179 windows had a max intra-window gap above 100ms; 36/179 above 300ms; worst single-frame gap 634ms. The BLE/Wi-Fi-Direct link itself bursts and starves.
+- **In-app pipeline exonerated.** `decoder_rebuilds_delta` total = 0, `decode_errors_delta` total = 0, `dat_callbacks_total` (4311) ≈ `capturer_frames_total` (4310) — off by 1 (cross-window boundary effect). The resolution-swap decoder rebuild path never fired this run.
+- **Encoder loses 7.1% of captured frames** (308 of 4310 captured → 4002 encoded). Mostly during DAT bursts above ~32fps. Secondary to the starve problem; viewer freezes correlate to DAT gaps, not encoder drops.
+- **Bitrate volatility is downstream of starves.** Range 358K–1.6 Mbps, median 780K. Encoder inflates per-frame size when arrivals are sparse — no bandwidth limitation; supply-side jitter.
+- **Viewer side this run:** 54 freezes, max gap 993ms (vs. 59 / 2506ms in the previous long run — similar shape, less catastrophic worst case).
+- **Front-camera baseline had a 5898ms viewer freeze** despite iOS sender holding 30fps steady. Looks like a one-off browser/OS suspend; not investigated.
+
+Stage 2 verdict:
+
+- Skip Stage 3 (per-frame PTS / decode-latency probes). Decode is already proven clean (0 errors, 0 rebuilds, full parity); finer-grained timing wouldn't change the verdict.
+- Move to fix-decision phase. Three candidates in priority order:
+  - **(C) Verify Meta DAT link/transport reality first.** Is the glasses↔phone link genuinely capped at ~24 fps for HEVC/`.high`, or is there a config we missed? ~30 min, no code.
+  - **(A) DAT config sweep.** A/B with `.medium` / `.low` resolution and/or non-HEVC codecs to see whether smaller payloads deliver cadence more reliably. Cheap to test with the existing wrapper.
+  - **(B) Smoothing buffer in `GlassesSource`.** 50–150ms jitter buffer between DAT listener and `BufferCapturer.capture(...)` that absorbs bursts/starves. Only if (C)/(A) don't move the median.
 
 Known analyzer caveats:
 
