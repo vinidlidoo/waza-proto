@@ -27,7 +27,7 @@ export default async function globalSetup() {
         if (!process.env[key]) throw new Error(`missing env var ${key}; check repo-root .env`);
     }
 
-    // Mint a 3h invite — same envelope shape scripts/mint-token.sh produces
+    // Mint a 3h invite — same envelope shape scripts/mint-publisher-token.sh produces
     // but inline so the test is self-contained. Identity prefix matches the
     // production mint flow ("e2e-") so the viewer-filter test won't count it.
     const secret = new TextEncoder().encode(process.env.INVITE_SIGNING_SECRET);

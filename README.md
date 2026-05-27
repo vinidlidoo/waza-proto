@@ -64,6 +64,32 @@ With [`just`](https://github.com/casey/just) installed (`brew install just`), `j
   ```
   The first runs `WazaProtoTests` (Secrets shape validation, `RoomConnection.Status` equality + labels, viewer-identity filter helper, MockDeviceKit smoke test). The second runs `WazaProtoUITests` (launches the app with `--ui-testing`, drives Meta's Mock Device test server, asserts the SwiftUI Connect button enables once the mock pair propagates). Requires `Secrets.swift` (run `./scripts/refresh-secrets.sh` first on a fresh checkout). `-parallel-testing-enabled NO` keeps tests on the explicitly-booted simulator; cloned-simulator parallel runs have been flaky for us on iOS 26.5.
 
+## Profiling
+
+The glasses feed jitters and stutters where the iPhone front camera doesn't. To measure (rather than guess) where the divergence lives, the project ships a paired-run profiler that captures one second of stats per side per window across the LiveKit boundary and inside `GlassesSource`. Full design + findings: [plan 11](plans/completed/11-video-quality-profiling.md). Tracked fix: [glasses smoothing buffer](plans/features/glasses-smoothing-buffer.md).
+
+Run a paired profile (3-min front-camera + 3-min glasses, back-to-back, same room/network):
+
+```sh
+./scripts/run-paired-profile.sh
+```
+
+The wrapper builds + installs the iOS app, starts the local viewer server on `:4173`, mints an invite URL, opens the browser, captures iOS stdout JSONL into `profiler/`, and prints an analyzer summary table when you Ctrl-C out. Pass `DEVICE_ID=<udid>` if device autodetect picks the wrong target; pass `SKIP_BUILD=1` to skip the rebuild/reinstall.
+
+What gets measured (one JSON object per second per side, schema in plan 11):
+
+- **iOS publisher** — outbound width/height/fps, frames encoded, bitrate, WebRTC `qualityLimitationReason`, remote packet-loss/jitter/RTT (from LiveKit `TrackStatistics`). On the glasses path, also: DAT callback fps, inter-frame gap p50/p95/max, decoder rebuilds, decode errors, decoded frames, frames handed to `BufferCapturer`.
+- **Browser viewer** — inbound width/height/fps, frames decoded, frames dropped, jitter, freeze events >150 ms, worst freeze gap (from `getRTCStatsReport()` + `requestVideoFrameCallback`).
+
+Output files land in `profiler/` (gitignored), named `ios-<UTC>.jsonl` and `<UTC>-<source>-<a/b/c>-viewer.jsonl` and keyed by a shared `run_id`. Re-aggregate any time:
+
+```sh
+node scripts/analyze-video-quality.js                 # all runs in profiler/
+node scripts/analyze-video-quality.js profiler/<file>  # specific files
+```
+
+The analyzer prints a comparison table grouping runs by `source × side` with median sent/received fps, total dropped/freeze counts, worst freeze gap, and publish-stall window count.
+
 ## Open questions
 
 - **WDAT frame format and surface.** Does the iOS WDAT SDK hand frames as `CMSampleBuffer`, `CVPixelBuffer`, or something else? What pixel format? At what cadence?

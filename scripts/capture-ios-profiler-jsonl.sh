@@ -2,8 +2,8 @@
 # Launch the iOS app with console attached and capture profiler JSONL lines.
 #
 # Usage:
-#   DEVICE_ID=<udid> ./scripts/profile-video-quality.sh
-#   ./scripts/profile-video-quality.sh <udid>
+#   DEVICE_ID=<udid> ./scripts/capture-ios-profiler-jsonl.sh
+#   ./scripts/capture-ios-profiler-jsonl.sh <udid>
 
 set -euo pipefail
 

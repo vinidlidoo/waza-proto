@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# One-command Stage 1 profiling helper.
+# One-command paired profiling helper. Builds + installs the iOS app, starts
+# the local viewer server, mints an invite URL, opens the browser, then captures
+# iOS stdout JSONL into profiler/. Drives whichever profiling stage the app is
+# currently compiled for (Stage 1, Stage 2, …).
 #
 # Usage:
-#   ./scripts/run-stage1-profile.sh
-#   DEVICE_ID=<udid> ./scripts/run-stage1-profile.sh
-#   SKIP_BUILD=1 ./scripts/run-stage1-profile.sh
+#   ./scripts/run-paired-profile.sh
+#   DEVICE_ID=<udid> ./scripts/run-paired-profile.sh
+#   SKIP_BUILD=1 ./scripts/run-paired-profile.sh
 
 set -euo pipefail
 
@@ -149,7 +152,7 @@ fi
 echo "capturing iOS profiler logs. Press Ctrl-C here when the paired runs are done." >&2
 echo "manual steps after the app is visible: select source, tap Start 3m, repeat for front camera and glasses." >&2
 set +e
-BUNDLE_ID="$BUNDLE_ID" "$REPO_ROOT/scripts/profile-video-quality.sh" "$DEVICE_ID"
+BUNDLE_ID="$BUNDLE_ID" "$REPO_ROOT/scripts/capture-ios-profiler-jsonl.sh" "$DEVICE_ID"
 CAPTURE_STATUS="$?"
 set -e
 

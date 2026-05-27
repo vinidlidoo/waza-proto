@@ -176,10 +176,13 @@ ios/WazaProto/WazaProto/
   GlassesSource.swift          Stage 2+ only - aggregate DAT/decode probes
 
 viewer/index.html              + ?debugStats=1 overlay + JSONL download/local auto-save
-scripts/profile-video-quality.sh
+scripts/capture-ios-profiler-jsonl.sh
                                NEW - launch/capture helper that writes profiler/*.jsonl
-scripts/run-stage1-profile.sh
-                               NEW - local Stage 1 wrapper for server, invite URL, build/install, and capture
+                               (originally named profile-video-quality.sh)
+scripts/run-paired-profile.sh
+                               NEW - one-command wrapper: build/install, local viewer server,
+                               invite URL, browser, iOS stdout capture, analyzer
+                               (originally named run-stage1-profile.sh)
 scripts/mint-viewer-invite-url.js
                                NEW - local invite URL helper; Node stdlib only, no package deps
 scripts/analyze-video-quality.js
@@ -206,7 +209,7 @@ profiler/                      NEW - gitignored local JSONL run output
 - **LiveKit Swift 2.14.1 exposes the Stage 1 sender fields through `TrackStatistics`.** `OutboundRtpStreamStatistics` includes width/height/FPS, `framesEncoded`, `bytesSent`, `qualityLimitationReason`, `qualityLimitationDurations`, and resolution-change count. `RemoteInboundRtpStreamStatistics` exposes packet-loss/jitter/RTT fields when WebRTC provides them. The profiler keeps these nullable rather than reaching into the underlying peer connection; raw `RTCStatisticsReport` access stays out of scope for Stage 1.
 - **Local track stats must be explicitly enabled.** Adding a `TrackDelegate` is not enough; LiveKit Swift only starts its stats timer when `track.set(reportStatistics: true)` is called. The first smoke run proved this by producing iOS `run_start` / `run_stop` lines but no `profile_window` lines.
 - **Analyzer stays dependency-free.** `scripts/analyze-video-quality.js` is a top-level Node stdlib script so it does not add another package boundary outside `viewer/`.
-- **Stage 1 has a local automation wrapper.** `scripts/run-stage1-profile.sh` starts the local viewer server, mints a local `invite=` URL, opens the browser, optionally builds/installs the iOS app, and then delegates iOS stdout capture to `scripts/profile-video-quality.sh`. The local server accepts viewer JSONL at `/api/profile-capture`; deployed/Vercel viewer runs still use manual download.
+- **Stage 1 has a local automation wrapper.** `scripts/run-paired-profile.sh` (originally `run-stage1-profile.sh`) starts the local viewer server, mints a local `invite=` URL, opens the browser, optionally builds/installs the iOS app, and then delegates iOS stdout capture to `scripts/capture-ios-profiler-jsonl.sh` (originally `profile-video-quality.sh`). The local server accepts viewer JSONL at `/api/profile-capture`; deployed/Vercel viewer runs still use manual download.
 - **The automation wrapper builds before opening the viewer.** An early smoke test opened the viewer before reinstalling/launching the app, which let the human start a front-camera run before iOS stdout capture was attached. The wrapper now builds/installs first, then starts the local viewer, opens the invite URL, launches the app with console capture, and only then prints the manual-step prompt.
 - **Stage 1 smoke and one long paired run completed.** Latest long run files are `profiler/ios-2026-05-27T00-27-25Z.jsonl`, `profiler/2026-05-27T00-27-50Z-frontCamera-a-viewer.jsonl`, and `profiler/2026-05-27T00-31-00Z-glasses-a-viewer.jsonl`. The analyzer reported front camera at 30 fps / 1.70 Mbps with 1 viewer freeze, and glasses at 23 fps / 0.75 Mbps with 59 viewer freezes.
 - **Plan number is 11.** Other sessions are occupying earlier active-plan slots, so this plan was promoted as `plans/active/11-video-quality-profiling.md`.
@@ -216,6 +219,10 @@ profiler/                      NEW - gitignored local JSONL run output
 - **Stage-2 metrics omitted from front-camera windows.** `dat_*`, `decoder_*`, `decoded_*`, `capturer_*` apply only to glasses; emitting them as null on front-camera windows would imply they're available but unmeasured. The schema rule about null-not-omit applies to fields the analyzer expects per source; the analyzer already tolerates missing fields.
 - **Stage-2 `start()` drains the counters once to clear gaps accumulated since the listener was installed.** Otherwise the first window after a delayed run-start would attribute pre-run gaps to window 1. This also sets the baseline snapshot, so the first window's deltas are nil (same convention as `lastBytesSent`).
 - **Pre-existing `[glasses] decode fps=...` and `decode error status=...` prints removed.** They overlapped with the new `dat_callback_fps` and `decode_errors_delta` fields. Lifecycle messages (`[glasses] decoder (re)built for WxH`, `VTDecompressionSessionCreate failed`) stay — they carry context the counters don't (dimensions, OSStatus).
+- **(C) DAT cadence cap is documented behavior.** Meta's iOS integration guide states `frameRate` accepts only `{2, 7, 15, 24, 30}` and describes an automatic adaptive ladder: Bluetooth Classic bandwidth constraints first drop resolution one step (e.g. `high` → `medium`), then drop framerate (`30` → `24`), never below 15 fps. Our observed median 23.8 fps under `.high` + 30 matches the documented "30 → 24" rung. `StreamConfiguration` exposes only `videoCodec`/`resolution`/`frameRate`; `Stream` has no buffer or frame-strategy method. The public API surface is fully checked — no hidden knob.
+- **(A) Lowering requested resolution makes things worse, not better.** Paired 3-min `.medium` + 30 run (`profiler/ios-2026-05-27T01-54-31Z.jsonl` / `profiler/2026-05-27T01-54-55Z-glasses-a-viewer.jsonl`) auto-demoted to `.low` (viewer received 360×640 vs 504×896 on the `.high` baseline) — the "one step" wording in the docs is misleading; the ladder demotes whatever rung you ask for. DAT cadence stayed identical (p50 23.9 vs 23.8 fps), tail gaps slightly improved (10 vs 36 windows >300ms), but bitrate fell by ~44% (~780K → ~437K mean) and **encoder drops more than doubled** (7.1% → 18.5%, 308 → 808 frames). Viewer playback regressed: decoded fps p50 24 → 20; worst freeze 993ms → 5145ms. **Verdict: BT Classic delivery cadence is the bottleneck, not bandwidth.** Reverted to `.high` + 30 — that's the best-known config until (B) ships.
+- **Skip `.high` + 24 fps explicit request.** No hypothesis predicts it improves cadence: we're already operating at the documented "30 → 24" auto-rung, and asking for 24 directly doesn't change BT Classic burst timing.
+- **`freeze_max_gap_ms` is a cumulative max-since-start, not per-window.** Identified during (A) analysis: every window in a run reports the same value (the worst gap ever observed in that run so far). Workable for now since the analyzer's `max_freeze_ms` reducer already takes the max across windows, but should be converted to a per-window delta in a future analyzer pass.
 
 ## Handoff notes
 
@@ -225,7 +232,7 @@ How to collect another Stage 1 run:
 
 ```sh
 cd "/Users/vincent/Projects/waza-proto-video-profiling"
-./scripts/run-stage1-profile.sh
+./scripts/run-paired-profile.sh
 ```
 
 If device detection fails, pass `DEVICE_ID=<udid>`. If the app is already installed and signing/building is not needed, use `BUILD_APP=0`.
@@ -255,10 +262,8 @@ Stage 2 findings (`profiler/ios-2026-05-27T01-19-06Z.jsonl`):
 Stage 2 verdict:
 
 - Skip Stage 3 (per-frame PTS / decode-latency probes). Decode is already proven clean (0 errors, 0 rebuilds, full parity); finer-grained timing wouldn't change the verdict.
-- Move to fix-decision phase. Three candidates in priority order:
-  - **(C) Verify Meta DAT link/transport reality first.** Is the glasses↔phone link genuinely capped at ~24 fps for HEVC/`.high`, or is there a config we missed? ~30 min, no code.
-  - **(A) DAT config sweep.** A/B with `.medium` / `.low` resolution and/or non-HEVC codecs to see whether smaller payloads deliver cadence more reliably. Cheap to test with the existing wrapper.
-  - **(B) Smoothing buffer in `GlassesSource`.** 50–150ms jitter buffer between DAT listener and `BufferCapturer.capture(...)` that absorbs bursts/starves. Only if (C)/(A) don't move the median.
+- Investigation complete. Root cause identified: BT Classic delivery cadence (documented adaptive-ladder behavior, see (C) and (A) in the decisions log).
+- Fix is a separate feature: [[glasses-smoothing-buffer]] — small ring buffer + display-link pump between DAT decode and `BufferCapturer.capture(...)` to absorb DAT bursts/stalls. Tracked in `plans/features.md`; plan 11 closes here.
 
 Known analyzer caveats:
 

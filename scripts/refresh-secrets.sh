@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerate ios/WazaProto/WazaProto/Secrets.swift with the current LiveKit
-# wsURL (from .env) and a fresh 6h publisher JWT (from mint-token.sh).
+# wsURL (from .env) and a fresh 6h publisher JWT (from mint-publisher-token.sh).
 #
 # Re-run whenever the JWT in the iOS app stops working.
 
@@ -20,7 +20,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-TOKEN=$("$REPO_ROOT/scripts/mint-token.sh" publisher)
+TOKEN=$("$REPO_ROOT/scripts/mint-publisher-token.sh")
 
 cat > "$SECRETS_FILE" <<EOF
 // Gitignored. Regenerate via: ./scripts/refresh-secrets.sh
