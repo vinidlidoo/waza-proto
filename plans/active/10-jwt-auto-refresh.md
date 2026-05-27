@@ -156,4 +156,4 @@ Once the loop is load-bearing, retire the old surfaces.
 
 ## Decisions logged during implementation
 
-*(Add notes here as stages ship — especially the Stage 3 finding about the exact LiveKit Swift update-token API.)*
+- **Stage 1 README/env-vars task deferred to Stage 4.** The plan's Stage 1 bullet "Add `PUBLISHER_SIGNING_SECRET` to README env-vars section and to `.env.example`" couldn't land cleanly: there is no `.env.example` in the repo today, and the only README env-vars mention is on the Playwright line (which doesn't need the publisher secret — Vitest stubs it in its own setup). Adding it there would mislead. Stage 4 already plans a comprehensive README env-vars rewrite — the publisher secret will land there alongside the iOS first-run rewrite.
