@@ -97,7 +97,11 @@ Wire the mint into the existing connect flow without touching refresh yet. Goal:
 2. `xcodebuild test` covers the envelope builder.
 3. Disable the endpoint (e.g. rename it) and confirm `RoomConnection.Status` transitions to `.failed` with a clear error string rather than hanging.
 
-### Stage 3 — Refresh loop
+### Stage 3 — Refresh loop *(skipped — see Decisions logged)*
+
+LiveKit server already pushes `refresh_token` signals to connected clients; the Swift SDK caches them internally for reconnects. In-session TTL is a non-issue. The original Stage 3 text is preserved below for posterity but is not being implemented.
+
+---
 
 Now the actual feature. `RoomConnection` (or a new `TokenRefresher` it owns) schedules and performs in-band updates.
 
@@ -169,3 +173,12 @@ Once the loop is load-bearing, retire the old surfaces.
 - **Stage 2 device smoke required a prod deploy.** The iOS app's `Config.publisherHost` points at `https://waza-proto.vercel.app` (production). After Stage 1+2 landed on preview only, the device smoke returned `MintError.http(404, "NOT_FOUND")` from prod. Resolved by `vercel --prod --yes` from `viewer/` against the branch HEAD (`dpl_6q9XuSizPDqKw63xqSXkbTF5JhQ2`). Side effect: prod also got the `/api/token` → `/api/viewer-token` rename, breaking any pre-rename viewer URLs (none in flight at the time). **Implication for Stage 3:** the short-TTL probe will need to live on the prod deploy too (or the iOS app needs a debug-build override for `publisherHost` pointed at a preview). Lean toward the second — keeps the probe contained.
 
 - **Production env already had `PUBLISHER_SIGNING_SECRET`.** Smoke curl returned `missing_auth` (not `missing_env`) on the bare endpoint, confirming all 4 required vars are present in Production env. Don't recall pushing it explicitly — likely got picked up because Stage 1's dashboard add covered Preview+Production by default.
+
+- **Stage 3 (refresh loop) skipped — the plan's premise was wrong for LiveKit.** Pre-implementation research surfaced:
+  - `client-sdk-swift` exposes **no public `updateToken(_:)`**. The only `didUpdateToken` is an internal `SignalClientDelegate` callback that handles a server-pushed `refresh_token` message and writes it to `_state.token` (`Sources/LiveKit/Core/Room+SignalClientDelegate.swift`).
+  - `livekit_rtc.proto` line for `refresh_token`: *"update the token the client was using, to prevent an active client from using an expired token."* The server does the refresh.
+  - LiveKit docs (Tokens & grants): *"Expiration time only impacts the initial connection, and not subsequent reconnects. LiveKit server proactively issues refreshed tokens to connected clients … These refreshed access tokens have a 10-minute expiration."*
+
+  Implication: once connected, the SDK keeps a rolling 10-min token internally for reconnects. The 6h JWT TTL only gates the *initial* connect. The motivating "publisher token has 6h TTL → needs rotation for multi-hour sessions" framing was incorrect; the genuine ceiling on session length never existed in practice. Stage 1+2 already deliver the real wins (no long-lived LiveKit JWT shipped in the bundle, fresh JWT minted at each `connect()`, no more `refresh-secrets.sh` ritual). Stage 3's refresh loop and short-TTL probe would have duplicated functionality the server already provides.
+
+  Narrow residual risk: if the app stays disconnected long enough for the cached server-pushed token (10-min TTL) to age out, reconnect will fail. Mitigation: a future `RoomConnection` reconnect-on-auth-error fallback that calls `connect()` (which re-mints). Out of scope for plan 10. Captured as a backlog item for future work.

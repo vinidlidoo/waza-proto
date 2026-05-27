@@ -6,24 +6,6 @@ import XCTest
 /// script (or a hand-edit) emitting malformed values.
 final class SecretsTests: XCTestCase {
 
-    func testWsURLIsSecureWebSocketURL() throws {
-        XCTAssertTrue(Secrets.wsURL.hasPrefix("wss://"), "wsURL must use the secure WebSocket scheme")
-        let url = try XCTUnwrap(URL(string: Secrets.wsURL))
-        XCTAssertEqual(url.scheme, "wss")
-        XCTAssertNotNil(url.host)
-    }
-
-    func testTokenLooksLikeJWT() throws {
-        let segments = Secrets.token.split(separator: ".", omittingEmptySubsequences: false)
-        XCTAssertEqual(segments.count, 3, "JWT must have 3 dot-separated segments")
-        for segment in segments {
-            XCTAssertFalse(segment.isEmpty, "no segment may be empty")
-        }
-        let headerData = try XCTUnwrap(base64URLDecode(String(segments[0])))
-        let header = try JSONSerialization.jsonObject(with: headerData) as? [String: Any]
-        XCTAssertEqual(header?["alg"] as? String, "HS256")
-    }
-
     func testInviteSigningSecretMeetsHS256Strength() throws {
         XCTAssertFalse(Secrets.inviteSigningSecret.isEmpty)
         let decoded = try XCTUnwrap(
@@ -40,15 +22,5 @@ final class SecretsTests: XCTestCase {
             "publisherSigningSecret must be base64-decodable"
         )
         XCTAssertGreaterThanOrEqual(decoded.count, 32, "HS256 requires ≥256 bits of key material")
-    }
-
-    // MARK: - Helpers
-
-    private func base64URLDecode(_ s: String) -> Data? {
-        var padded = s.replacingOccurrences(of: "-", with: "+")
-                      .replacingOccurrences(of: "_", with: "/")
-        let remainder = padded.count % 4
-        if remainder > 0 { padded.append(String(repeating: "=", count: 4 - remainder)) }
-        return Data(base64Encoded: padded)
     }
 }
