@@ -56,7 +56,7 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
-                Text(copyToast ?? connection.status.label)
+                Text(copyToast ?? statusLabel)
                     .font(.callout.monospaced())
                     .foregroundStyle(copyToast == nil ? Color.secondary : Color.green)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -95,6 +95,15 @@ struct ContentView: View {
         }
     }
 
+    private var statusLabel: String {
+        if source == .glasses,
+           case .disconnected = connection.status,
+           glasses.activeDeviceID == nil {
+            return "Don glasses to connect"
+        }
+        return connection.status.label
+    }
+
     private var pickerDisabled: Bool {
         switch connection.status {
         case .connecting, .switching: return true
@@ -119,12 +128,12 @@ struct ContentView: View {
                     title: "Register with Meta AI",
                     action: { Task { await glasses.register() } }
                 )
-            }
-            // Show whenever permission isn't .granted. The gateway's
-            // refreshCameraPermission won't demote .granted → nil, so this
-            // doesn't flicker during transient hinge-fold drops.
-            if glasses.registrationState == .registered,
-               glasses.cameraPermission != .granted {
+            } else if glasses.activeDeviceID != nil,
+                      glasses.cameraPermission != .granted {
+                // Only prompt for camera access once a device is actually
+                // online. cameraPermission can read nil while the link is
+                // down, which would push the user toward the wrong fix; the
+                // "don the glasses" hint is surfaced via the status label.
                 gateRow(
                     title: "Grant camera access",
                     action: { Task { await glasses.requestCameraAccess() } }
@@ -246,7 +255,7 @@ private struct LocalPreview: UIViewRepresentable {
 
     func makeUIView(context: Context) -> VideoView {
         let view = VideoView()
-        view.layoutMode = .fit
+        view.layoutMode = .fill
         return view
     }
 

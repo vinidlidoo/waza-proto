@@ -47,6 +47,24 @@ final class ConnectFlowUITests: XCTestCase {
         mockClient = nil
     }
 
+    /// Registered + permissions granted, but no paired mock device → the
+    /// glasses gate should surface the "don the glasses" hint, not the
+    /// camera-access button. Guards plan 13's UI fix: when activeDeviceID is
+    /// nil, "Grant camera access" must not appear (it's the wrong next action).
+    func testGlassesTabShowsDonHintWhenNoActiveDevice() throws {
+        app.buttons["Glasses"].tap()
+
+        let hint = app.staticTexts["Don glasses to connect"]
+        XCTAssertTrue(
+            hint.waitForExistence(timeout: 5),
+            "Expected 'Don glasses to connect' hint when no glasses are active"
+        )
+        XCTAssertFalse(
+            app.buttons["Grant camera access"].exists,
+            "'Grant camera access' must not appear while no device is active — see plan 13"
+        )
+    }
+
     /// Pair a mock device via the HTTP test server; assert the SwiftUI Connect
     /// button becomes enabled once `GlassesGateway.isReady` flips. Catches
     /// regressions in: the `--ui-testing` app-init gate, the
