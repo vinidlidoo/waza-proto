@@ -263,7 +263,7 @@ Stage 2 verdict:
 
 - Skip Stage 3 (per-frame PTS / decode-latency probes). Decode is already proven clean (0 errors, 0 rebuilds, full parity); finer-grained timing wouldn't change the verdict.
 - Investigation complete. Root cause identified: BT Classic delivery cadence (documented adaptive-ladder behavior, see (C) and (A) in the decisions log).
-- Fix is a separate feature: [glasses-smoothing-buffer.md](../features/glasses-smoothing-buffer.md) — small ring buffer + display-link pump between DAT decode and `BufferCapturer.capture(...)` to absorb DAT bursts/stalls. Tracked in `plans/features.md`; plan 11 closes here.
+- Fix promoted to [plan 12 — glasses smoothing buffer](../active/12-glasses-smoothing-buffer.md) — small ring buffer + display-link pump between DAT decode and `BufferCapturer.capture(...)` to absorb DAT bursts/stalls. Plan 11 closes here.
 
 Known analyzer caveats:
 
