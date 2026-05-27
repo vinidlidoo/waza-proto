@@ -197,6 +197,9 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             metrics["decode_errors_delta"] = Int64(snap.decodeErrors &- prev.decodeErrors)
             metrics["decoded_frames_delta"] = Int64(snap.decodedFrames &- prev.decodedFrames)
             metrics["capturer_frames_delta"] = Int64(snap.capturedFrames &- prev.capturedFrames)
+            metrics["buffer_pulls_delta"] = Int64(snap.bufferPulls &- prev.bufferPulls)
+            metrics["buffer_underruns_delta"] = Int64(snap.bufferUnderruns &- prev.bufferUnderruns)
+            metrics["buffer_overruns_delta"] = Int64(snap.bufferOverruns &- prev.bufferOverruns)
         } else {
             metrics["dat_callback_fps"] = NSNull()
             metrics["dat_callbacks_delta"] = NSNull()
@@ -204,6 +207,9 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             metrics["decode_errors_delta"] = NSNull()
             metrics["decoded_frames_delta"] = NSNull()
             metrics["capturer_frames_delta"] = NSNull()
+            metrics["buffer_pulls_delta"] = NSNull()
+            metrics["buffer_underruns_delta"] = NSNull()
+            metrics["buffer_overruns_delta"] = NSNull()
         }
         if snap.gapsMs.isEmpty {
             metrics["dat_interframe_gap_p50_ms"] = NSNull()
@@ -215,10 +221,25 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             metrics["dat_interframe_gap_p95_ms"] = Self.percentile(sorted, 0.95)
             metrics["dat_interframe_gap_max_ms"] = sorted.last!
         }
+        if snap.depthSamples.isEmpty {
+            metrics["buffer_depth_p50_frames"] = NSNull()
+            metrics["buffer_depth_p95_frames"] = NSNull()
+            metrics["buffer_depth_max_frames"] = NSNull()
+        } else {
+            let sorted = snap.depthSamples.sorted()
+            metrics["buffer_depth_p50_frames"] = Self.intPercentile(sorted, 0.5)
+            metrics["buffer_depth_p95_frames"] = Self.intPercentile(sorted, 0.95)
+            metrics["buffer_depth_max_frames"] = sorted.last!
+        }
         lastGlassesSnapshot = snap
     }
 
     private static func percentile(_ sorted: [Double], _ p: Double) -> Double {
+        let idx = min(sorted.count - 1, max(0, Int((Double(sorted.count) * p).rounded(.up)) - 1))
+        return sorted[idx]
+    }
+
+    private static func intPercentile(_ sorted: [Int], _ p: Double) -> Int {
         let idx = min(sorted.count - 1, max(0, Int((Double(sorted.count) * p).rounded(.up)) - 1))
         return sorted[idx]
     }
