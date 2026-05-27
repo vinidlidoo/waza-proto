@@ -6,7 +6,7 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-*(no active plans)*
+- [11 — Video quality profiling](active/11-video-quality-profiling.md) — staged profiler that starts with LiveKit sender/receiver/playout stats, then adds glasses capture/decode probes only if needed; baselines the jittery glasses stream against the smoother front-camera path before changing codecs or transport.
 
 ## Completed
 

@@ -60,3 +60,24 @@ final class RoomConnectionWatcherFilterTests: XCTestCase {
         XCTAssertEqual(RoomConnection.watcherCount(identities: ["", "", "viewer-1234abcd"]), 1)
     }
 }
+
+final class RoomConnectionProfilerTests: XCTestCase {
+
+    func testProfileRunIDUsesUTCSourceAndRunLetter() {
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        XCTAssertEqual(
+            RoomConnection.profileRunID(source: "frontCamera", runIndex: 0, date: date),
+            "2026-05-28T20-26-40Z-frontCamera-a"
+        )
+        XCTAssertEqual(
+            RoomConnection.profileRunID(source: "glasses", runIndex: 2, date: date),
+            "2026-05-28T20-26-40Z-glasses-c"
+        )
+    }
+
+    func testProfileRunIDClampsLetter() {
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        XCTAssertTrue(RoomConnection.profileRunID(source: "glasses", runIndex: -1, date: date).hasSuffix("-a"))
+        XCTAssertTrue(RoomConnection.profileRunID(source: "glasses", runIndex: 99, date: date).hasSuffix("-z"))
+    }
+}

@@ -25,6 +25,6 @@ lk token create \
   --room waza-proto \
   --identity ios-publisher \
   --join \
-  --grant '{"canSubscribe":false,"canPublish":true}' \
+  --grant '{"canSubscribe":false,"canPublish":true,"canPublishData":true}' \
   --valid-for 6h \
   --token-only

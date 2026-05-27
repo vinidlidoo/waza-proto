@@ -17,6 +17,12 @@ final class RoomConnection: NSObject, ObservableObject {
         case frontCamera = "Front camera"
         case glasses = "Glasses"
         var id: String { rawValue }
+        var profileID: String {
+            switch self {
+            case .frontCamera: return "frontCamera"
+            case .glasses:     return "glasses"
+            }
+        }
     }
 
     enum Status: Equatable {
@@ -40,6 +46,7 @@ final class RoomConnection: NSObject, ObservableObject {
     @Published private(set) var status: Status = .disconnected
     @Published private(set) var localVideoTrack: VideoTrack?
     @Published private(set) var watcherCount: Int = 0
+    @Published private(set) var profileRunID: String?
 
     // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
     // .suspend() on any track with source=.camera (which includes our
@@ -47,6 +54,9 @@ final class RoomConnection: NSObject, ObservableObject {
     // of UIBackgroundModes. See livekit/client-sdk-swift#832.
     let room = Room(roomOptions: RoomOptions(suspendLocalVideoTracksInBackground: false))
     private var publisher: VideoPublisher?
+    private let profiler = VideoQualityProfiler()
+    private var profileStopTask: Task<Void, Never>?
+    private var profileRunCounts: [Source: Int] = [:]
 
     override init() {
         super.init()
@@ -68,6 +78,8 @@ final class RoomConnection: NSObject, ObservableObject {
                 // process keeps running. See livekit/client-sdk-swift#510.
                 try await room.localParticipant.setMicrophone(enabled: true)
                 localVideoTrack = try await publisher.publish(to: room)
+                await localVideoTrack?.set(reportStatistics: true)
+                profiler.attach(to: localVideoTrack)
                 status = .connected
             } catch {
                 status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
@@ -88,10 +100,14 @@ final class RoomConnection: NSObject, ObservableObject {
             let oldPublisher = publisher
             let newPublisher = makePublisher(source: source, glasses: glasses)
             do {
+                await stopProfiling(incomplete: true)
                 if let oldPublisher { await oldPublisher.unpublish(from: room) }
                 localVideoTrack = nil
+                profiler.attach(to: nil)
                 publisher = newPublisher
                 localVideoTrack = try await newPublisher.publish(to: room)
+                await localVideoTrack?.set(reportStatistics: true)
+                profiler.attach(to: localVideoTrack)
                 status = .connected
             } catch {
                 status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
@@ -104,13 +120,42 @@ final class RoomConnection: NSObject, ObservableObject {
 
     func disconnect() {
         Task {
+            await stopProfiling(incomplete: true)
             if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
             publisher = nil
             localVideoTrack = nil
+            profiler.attach(to: nil)
             watcherCount = 0
             status = .disconnected
         }
+    }
+
+    func startProfiling(source: Source, durationSeconds: Int = 180) {
+        guard case .connected = status, profileRunID == nil else { return }
+        let count = profileRunCounts[source, default: 0]
+        profileRunCounts[source] = count + 1
+        let runID = Self.profileRunID(source: source.profileID, runIndex: count)
+        let durationMs = durationSeconds * 1000
+        profileRunID = runID
+
+        if let data = profiler.start(runID: runID, source: source.profileID, durationMs: durationMs) {
+            Task { try? await publishProfileMessage(data) }
+        }
+
+        profileStopTask?.cancel()
+        profileStopTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(durationSeconds))
+            await self?.stopProfiling(incomplete: false)
+        }
+    }
+
+    func stopProfiling(incomplete: Bool = false) async {
+        profileStopTask?.cancel()
+        profileStopTask = nil
+        profileRunID = nil
+        guard let data = profiler.stop(incomplete: incomplete) else { return }
+        try? await publishProfileMessage(data)
     }
 
     private func makePublisher(source: Source, glasses: GlassesGateway) -> VideoPublisher {
@@ -139,6 +184,23 @@ final class RoomConnection: NSObject, ObservableObject {
         identities.filter { $0.hasPrefix("viewer-") }.count
     }
 
+    nonisolated static func profileRunID(source: String, runIndex: Int, date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss'Z'"
+        let letterScalar = UnicodeScalar(97 + min(max(runIndex, 0), 25))!
+        return "\(formatter.string(from: date))-\(source)-\(Character(letterScalar))"
+    }
+
+    private func publishProfileMessage(_ data: Data) async throws {
+        try await room.localParticipant.publish(
+            data: data,
+            options: DataPublishOptions(topic: VideoQualityProfiler.dataTopic, reliable: true)
+        )
+    }
+
     private func handleGlassesTerminated() {
         // Called from GlassesSource's watchdog when its DAT DeviceSession ends
         // unexpectedly (e.g. hinge fold). Tear the LiveKit side down cleanly so
@@ -146,10 +208,12 @@ final class RoomConnection: NSObject, ObservableObject {
         // again once the glasses are usable.
         guard publisher is GlassesSource else { return }
         Task {
+            await stopProfiling(incomplete: true)
             if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
             self.publisher = nil
             localVideoTrack = nil
+            profiler.attach(to: nil)
             watcherCount = 0
             status = .failed("Glasses session ended — unfold and reconnect")
         }

@@ -51,6 +51,7 @@ struct ContentView: View {
                 glassesGate
             }
             if showDebug {
+                profilerDebug
                 devicesDebug
             }
 
@@ -130,6 +131,43 @@ struct ContentView: View {
                 )
             }
         }
+    }
+
+    @ViewBuilder
+    private var profilerDebug: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Profiler")
+                    .font(.caption.bold())
+                Spacer()
+                if connection.profileRunID == nil {
+                    Button("Start 3m") {
+                        connection.startProfiling(source: source)
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(!canStartProfiling)
+                } else {
+                    Button("Stop") {
+                        Task { await connection.stopProfiling(incomplete: true) }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+            }
+            Text(connection.profileRunID.map { "run: \($0)" } ?? "run: inactive")
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var canStartProfiling: Bool {
+        guard case .connected = connection.status else { return false }
+        return connection.profileRunID == nil
     }
 
     @ViewBuilder

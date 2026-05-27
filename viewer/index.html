@@ -10,6 +10,12 @@
       background: rgba(0,0,0,0.6); border-radius: 4px; }
     #status.connected { background: rgba(0,128,0,0.7); }
     #status.error { background: rgba(180,0,0,0.7); }
+    #debug-stats { position: fixed; right: 12px; bottom: 12px; display: none;
+      min-width: 260px; max-width: 360px; padding: 8px 10px; line-height: 1.35;
+      background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap; }
+    #debug-stats a { color: #8bd3ff; }
     #video-slot { display: flex; align-items: center; justify-content: center;
       height: 100%; }
     #video-slot video { max-width: 100%; max-height: 100%; background: #000; }
@@ -17,6 +23,7 @@
 </head>
 <body>
   <div id="status">starting…</div>
+  <div id="debug-stats"></div>
   <div id="video-slot"></div>
 
   <script type="module">
@@ -25,10 +32,214 @@
 
     const statusEl = document.getElementById('status');
     const slotEl = document.getElementById('video-slot');
+    const debugEl = document.getElementById('debug-stats');
+    const PROFILE_TOPIC = 'waza.profile';
+    const PROFILE_STAGE = 1;
+    const FREEZE_GAP_MS = 150;
+    const debugStats = new URLSearchParams(location.search).get('debugStats') === '1';
+    const autoSaveProfile = debugStats && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+    const decoder = new TextDecoder();
+
+    let currentTrack;
+    let currentVideo;
+    let renderFrameCount = 0;
+    let freezeCount = 0;
+    let freezeMaxGapMs = 0;
+    let lastRenderCallbackMs;
+    let activeProfile;
 
     function setStatus(text, cls = '') {
       statusEl.textContent = text;
       statusEl.className = cls;
+    }
+
+    function epochMs() {
+      return Date.now();
+    }
+
+    function jsonLine(obj) {
+      return `${JSON.stringify(obj)}\n`;
+    }
+
+    function setDebug(text) {
+      if (!debugStats) return;
+      debugEl.style.display = 'block';
+      debugEl.textContent = text;
+    }
+
+    function appendDebugLink(label, href, filename) {
+      if (!debugStats) return;
+      debugEl.style.display = 'block';
+      const text = debugEl.textContent;
+      debugEl.textContent = `${text}\n`;
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      link.textContent = label;
+      debugEl.append(link);
+    }
+
+    async function saveProfileToLocalServer(profile, body) {
+      if (!autoSaveProfile) return false;
+      const res = await fetch(`/api/profile-capture?run_id=${encodeURIComponent(profile.runId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/jsonl' },
+        body,
+      });
+      if (!res.ok) {
+        const message = await res.text().catch(() => res.statusText);
+        throw new Error(message || res.statusText);
+      }
+      return true;
+    }
+
+    function trackRenderFrames(video) {
+      renderFrameCount = 0;
+      freezeCount = 0;
+      freezeMaxGapMs = 0;
+      lastRenderCallbackMs = undefined;
+      if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return;
+
+      const onFrame = (_now, metadata) => {
+        if (video !== currentVideo) return;
+        const mediaMs = metadata?.mediaTime != null ? metadata.mediaTime * 1000 : performance.now();
+        if (lastRenderCallbackMs != null) {
+          const gap = mediaMs - lastRenderCallbackMs;
+          if (gap > FREEZE_GAP_MS) {
+            freezeCount += 1;
+            freezeMaxGapMs = Math.max(freezeMaxGapMs, gap);
+          }
+        }
+        lastRenderCallbackMs = mediaMs;
+        renderFrameCount += 1;
+        video.requestVideoFrameCallback(onFrame);
+      };
+      video.requestVideoFrameCallback(onFrame);
+    }
+
+    function delta(profile, key, current) {
+      if (current == null) return null;
+      const previous = profile.lastTotals[key];
+      profile.lastTotals[key] = current;
+      if (previous == null) return null;
+      return current >= previous ? current - previous : null;
+    }
+
+    function firstVideoStat(report, type) {
+      if (!report) return undefined;
+      for (const stat of report.values()) {
+        if (stat.type !== type) continue;
+        if (stat.kind === 'video' || stat.mediaType === 'video') return stat;
+      }
+      return undefined;
+    }
+
+    async function collectProfileWindow() {
+      const profile = activeProfile;
+      if (!profile || !currentTrack) return;
+
+      const windowStart = epochMs();
+      const report = await currentTrack.getRTCStatsReport?.();
+      const inbound = firstVideoStat(report, 'inbound-rtp');
+      const quality = currentVideo?.getVideoPlaybackQuality?.();
+      const renderedTotal = renderFrameCount;
+      const freezeTotal = freezeCount;
+      const freezeMax = freezeMaxGapMs;
+
+      const jitterBufferTargetDelayMs =
+        inbound?.jitterBufferTargetDelay != null ? inbound.jitterBufferTargetDelay * 1000 : null;
+      const jitterMs = inbound?.jitter != null ? inbound.jitter * 1000 : null;
+
+      const metrics = {
+        inbound_width: inbound?.frameWidth ?? currentVideo?.videoWidth ?? null,
+        inbound_height: inbound?.frameHeight ?? currentVideo?.videoHeight ?? null,
+        inbound_fps: inbound?.framesPerSecond ?? null,
+        frames_decoded_delta: delta(profile, 'framesDecoded', inbound?.framesDecoded),
+        frames_dropped_delta: delta(profile, 'framesDropped', inbound?.framesDropped),
+        packets_lost_delta: delta(profile, 'packetsLost', inbound?.packetsLost),
+        jitter_ms: jitterMs,
+        jitter_buffer_target_delay_ms: jitterBufferTargetDelayMs,
+        rendered_frames_delta: delta(profile, 'renderedFrames', renderedTotal),
+        playout_dropped_frames_delta: delta(profile, 'playoutDroppedFrames', quality?.droppedVideoFrames),
+        freeze_events_delta: delta(profile, 'freezeEvents', freezeTotal),
+        freeze_max_gap_ms: freezeMax || null,
+      };
+
+      profile.lines.push(jsonLine({
+        schema_version: 1,
+        event: 'profile_window',
+        run_id: profile.runId,
+        side: 'viewer',
+        source: profile.source,
+        stage: PROFILE_STAGE,
+        window_start_epoch_ms: windowStart,
+        window_duration_ms: profile.lastWindowStart == null ? 1000 : Math.max(windowStart - profile.lastWindowStart, 1),
+        metrics,
+      }));
+      profile.lastWindowStart = windowStart;
+      setDebug(
+        `profiling ${profile.source}\n` +
+        `run ${profile.runId}\n` +
+        `recv ${metrics.inbound_fps ?? '?'} fps ${metrics.inbound_width ?? '?'}x${metrics.inbound_height ?? '?'}\n` +
+        `drop ${metrics.frames_dropped_delta ?? 0} freeze ${metrics.freeze_events_delta ?? 0}`
+      );
+    }
+
+    function startViewerProfile(message) {
+      stopViewerProfile({ incomplete: true, createDownload: false });
+      const runId = message.run_id;
+      activeProfile = {
+        runId,
+        source: message.source,
+        durationMs: message.duration_ms,
+        lines: [],
+        lastTotals: {},
+        lastWindowStart: undefined,
+      };
+      activeProfile.lines.push(jsonLine({
+        schema_version: 1,
+        event: 'run_start',
+        run_id: runId,
+        side: 'viewer',
+        source: message.source,
+        stage: PROFILE_STAGE,
+        process_start_epoch_ms: Math.round(performance.timeOrigin),
+        duration_ms: message.duration_ms,
+      }));
+      activeProfile.interval = setInterval(collectProfileWindow, 1000);
+      activeProfile.timeout = setTimeout(() => {
+        stopViewerProfile({ incomplete: false, createDownload: true });
+      }, message.duration_ms);
+      setDebug(`profiling ${message.source}\nrun ${runId}\nwaiting for stats…`);
+    }
+
+    function stopViewerProfile({ incomplete, createDownload = true } = { incomplete: false }) {
+      const profile = activeProfile;
+      if (!profile) return;
+      clearInterval(profile.interval);
+      clearTimeout(profile.timeout);
+      profile.lines.push(jsonLine({
+        schema_version: 1,
+        event: 'run_stop',
+        run_id: profile.runId,
+        side: 'viewer',
+        source: profile.source,
+        stage: PROFILE_STAGE,
+        incomplete,
+      }));
+      activeProfile = undefined;
+      if (!createDownload) return;
+      const filename = `${profile.runId}-viewer.jsonl`;
+      const body = profile.lines.join('');
+      const blob = new Blob(profile.lines, { type: 'application/jsonl' });
+      const href = URL.createObjectURL(blob);
+      setDebug(`profile complete\n${profile.runId}`);
+      appendDebugLink(filename, href, filename);
+      saveProfileToLocalServer(profile, body)
+        .then((saved) => {
+          if (saved) setDebug(`profile saved\n${filename}`);
+        })
+        .catch((err) => console.warn('profile auto-save failed:', err));
     }
 
     const invite = new URLSearchParams(location.search).get('invite');
@@ -59,21 +270,44 @@
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (track.kind !== Track.Kind.Video) return;
       const el = track.attach();
+      currentTrack = track;
+      currentVideo = el;
       el.autoplay = true;
       el.muted = true;        // required for autoplay on a dynamically-injected element after a publisher source swap
       el.playsInline = true;
       slotEl.replaceChildren(el);
+      trackRenderFrames(el);
       el.play().catch((err) => console.warn('autoplay rejected:', err));
       setStatus(`receiving video from ${participant.identity}`, 'connected');
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
       track.detach().forEach((el) => el.remove());
+      if (track === currentTrack) {
+        currentTrack = undefined;
+        currentVideo = undefined;
+      }
       setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+    });
+
+    room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+      if (!debugStats) return;
+      if (topic && topic !== PROFILE_TOPIC) return;
+      try {
+        const message = JSON.parse(decoder.decode(payload));
+        if (message.type === 'profile-run-start') {
+          startViewerProfile(message);
+        } else if (message.type === 'profile-run-stop') {
+          stopViewerProfile({ incomplete: Boolean(message.incomplete), createDownload: true });
+        }
+      } catch (err) {
+        console.warn('ignored profile data packet:', err);
+      }
     });
 
     room.on(RoomEvent.Disconnected, async (reason) => {
       console.log('disconnected, reason:', reason);
+      stopViewerProfile({ incomplete: true, createDownload: true });
       // LiveKit JWT TTL is 10min; the invite envelope is 3h. On TOKEN_EXPIRED,
       // try once to mint a fresh JWT — succeeds if the invite is still valid,
       // surfaces invite_expired otherwise.
