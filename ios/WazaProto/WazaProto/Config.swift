@@ -20,4 +20,12 @@ enum Config {
     // directly). Revert toward 0 as WDAT delivery cadence improves upstream.
     static let glassesSmoothingDepth = 2
     static let glassesSmoothingMaxDepth = 6
+
+    // plan 15: when true, GlassesSource skips the local HEVC decode + LiveKit
+    // re-encode path and instead serves raw Annex-B HEVC from the DAT stream
+    // over a TCP listener on glassesEncodedIngestPort. The lk relay (or ffplay
+    // for stage 1 verification) consumes from there. Default false ships the
+    // opt-in path until measured against the current pipeline (stage 2).
+    static let glassesEncodedIngest = false
+    static let glassesEncodedIngestPort: UInt16 = 16400
 }

@@ -18,6 +18,7 @@ final class GlassesSource: VideoPublisher {
     private var watchdogTask: Task<Void, Never>?
     private var smoother: FrameSmoothingBuffer?
     private var pump: SmoothingBufferPump?
+    private var tcpServer: EncodedFrameTCPServer?
 
     init(
         wearables: WearablesInterface,
@@ -31,27 +32,47 @@ final class GlassesSource: VideoPublisher {
 
     func publish(to room: Room) async throws -> VideoTrack? {
         print("[glasses] publish() begin — activeDevice=\(deviceSelector.activeDevice ?? "nil")")
+        let useEncodedIngest = Config.glassesEncodedIngest
 
-        let bufferTrack = LocalVideoTrack.createBufferTrack(
-            name: "glasses-camera",
-            source: .camera,
-            options: BufferCaptureOptions()
-        )
-        self.bufferTrack = bufferTrack
-        let capturer = bufferTrack.capturer as! BufferCapturer
+        let bufferTrack: LocalVideoTrack?
+        let capturer: BufferCapturer?
+        let smoother: FrameSmoothingBuffer?
+        let tcpServer: EncodedFrameTCPServer?
 
-        let smoothingDepth = Config.glassesSmoothingDepth
-        let smoother: FrameSmoothingBuffer? = smoothingDepth > 0
-            ? FrameSmoothingBuffer(maxDepth: Config.glassesSmoothingMaxDepth, primeDepth: smoothingDepth)
-            : nil
-        if let smoother {
-            let pump = SmoothingBufferPump(buffer: smoother, capturer: capturer)
-            self.smoother = smoother
-            self.pump = pump
-            pump.start()
-            print("[glasses] smoothing buffer enabled (depth=\(smoothingDepth))")
+        if useEncodedIngest {
+            let server = EncodedFrameTCPServer(port: Config.glassesEncodedIngestPort)
+            try server.start()
+            self.tcpServer = server
+            tcpServer = server
+            bufferTrack = nil
+            capturer = nil
+            smoother = nil
+            print("[glasses] encoded-ingest mode: TCP server on port \(Config.glassesEncodedIngestPort)")
         } else {
-            print("[glasses] smoothing buffer bypassed (depth=0)")
+            let track = LocalVideoTrack.createBufferTrack(
+                name: "glasses-camera",
+                source: .camera,
+                options: BufferCaptureOptions()
+            )
+            self.bufferTrack = track
+            bufferTrack = track
+            capturer = (track.capturer as! BufferCapturer)
+
+            let smoothingDepth = Config.glassesSmoothingDepth
+            let s: FrameSmoothingBuffer? = smoothingDepth > 0
+                ? FrameSmoothingBuffer(maxDepth: Config.glassesSmoothingMaxDepth, primeDepth: smoothingDepth)
+                : nil
+            if let s, let capturer {
+                let pump = SmoothingBufferPump(buffer: s, capturer: capturer)
+                self.smoother = s
+                self.pump = pump
+                pump.start()
+                print("[glasses] smoothing buffer enabled (depth=\(smoothingDepth))")
+            } else {
+                print("[glasses] smoothing buffer bypassed (depth=0)")
+            }
+            smoother = s
+            tcpServer = nil
         }
 
         print("[glasses] createSession()…")
@@ -97,11 +118,28 @@ final class GlassesSource: VideoPublisher {
         let firstFrame = AsyncStream<Void> { continuation in
             var fired = false
             var decompressionSession: VTDecompressionSession?
+            var extractor = HEVCAnnexBExtractor()
             let counters = GlassesProfilerCounters.shared
             counters.reset()
             self.frameToken = stream.videoFramePublisher.listen { frame in
                 counters.recordCallback()
                 let sampleBuffer = frame.sampleBuffer
+
+                if let tcpServer {
+                    // Encoded-ingest path: HVCC → Annex-B → TCP. No VT decode,
+                    // no smoother, no LiveKit encoder. The lk relay (or ffplay
+                    // in stage 1) consumes from the socket.
+                    guard let bytes = extractor.annexB(from: sampleBuffer) else { return }
+                    tcpServer.send(bytes)
+                    counters.recordCapturedFrame()
+                    if !fired {
+                        fired = true
+                        continuation.yield()
+                        continuation.finish()
+                    }
+                    return
+                }
+
                 guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
 
                 // DAT's adaptive-quality ladder silently swaps resolutions on
@@ -166,7 +204,7 @@ final class GlassesSource: VideoPublisher {
                         // path — VT decode callback feeds BufferCapturer directly,
                         // encoder sees DAT's bursty cadence.
                         let timeStampNs = Int64(presentationTimeStamp.seconds * 1_000_000_000)
-                        capturer.capture(imageBuffer, timeStampNs: timeStampNs, rotation: ._0)
+                        capturer?.capture(imageBuffer, timeStampNs: timeStampNs, rotation: ._0)
                         counters.recordCapturedFrame()
                     }
                     if !fired {
@@ -185,11 +223,13 @@ final class GlassesSource: VideoPublisher {
         _ = await iterator.next()
         print("[glasses] first frame received")
 
-        publication = try await room.localParticipant.publish(
-            videoTrack: bufferTrack,
-            options: VideoPublishOptions(simulcast: false, preferredCodec: .h265)
-        )
-        print("[glasses] track published to LiveKit")
+        if let bufferTrack {
+            publication = try await room.localParticipant.publish(
+                videoTrack: bufferTrack,
+                options: VideoPublishOptions(simulcast: false, preferredCodec: .h265)
+            )
+            print("[glasses] track published to LiveKit")
+        }
         return bufferTrack
     }
 
@@ -203,6 +243,8 @@ final class GlassesSource: VideoPublisher {
         pump = nil
         smoother?.drain()
         smoother = nil
+        tcpServer?.stop()
+        tcpServer = nil
         if let stream { await stream.stop() }
         stream = nil
         deviceSession?.stop()

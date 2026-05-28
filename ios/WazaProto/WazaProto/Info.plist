@@ -45,6 +45,8 @@
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
 	</array>
+	<key>UIRequiresPersistentWiFi</key>
+	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Waza Proto connects to Ray-Ban Meta glasses over Bluetooth to stream their camera.</string>
 	<key>NSLocalNetworkUsageDescription</key>
