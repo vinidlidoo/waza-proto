@@ -79,7 +79,7 @@ lk-cli's `ReaderSampleProvider` re-paces on top of us at `FrameDuration`. If our
 
 ## Stages
 
-### Stage 0 — Verify DAT PTS ordering and monotonicity
+### Stage 0 — Verify DAT PTS ordering and monotonicity ✅ 2026-05-28
 
 Before pinning the schedule to PTS, confirm DAT 0.7.0 actually delivers monotonic PTS in decode order on the Ray-Ban Meta Optics (Gen 2). HEVC permits B-frames where decode order ≠ presentation order; if DAT ever delivers B-frames, scheduling on PTS will fight itself.
 
@@ -87,6 +87,22 @@ Before pinning the schedule to PTS, confirm DAT 0.7.0 actually delivers monotoni
 - **Acceptance**: PTS strictly monotonic, no negative deltas. If B-frames appear: schedule on DTS or arrival-order-index instead and document the choice.
 
 Quick task: a print-statement-and-log-tail pass. No code change beyond an `#if DEBUG` log line.
+
+**Results** (capture: `profiler/plan16-stage0/2026-05-28T09-22Z.log`, 5m46s, 8449 callbacks):
+
+- **DTS always invalid** (`dts_ns=-1` for every callback) → DAT does not emit decode timestamps; **no B-frames**. PTS is the only ordering signal we have, and that's fine — there's no decode/presentation divergence.
+- **PTS sequence holes: 0**. Callback IDs 1..8449 are dense.
+- **PTS monotonicity: 8448/8449 deltas positive** — exactly **one negative delta** at cb=6447→6448→6449. DAT delivered three consecutive frames in PTS order N, N+2, N+1 (one adjacent-pair swap in 8449 frames = 0.012%).
+- **Cadence**: median delta = 41.67 ms; p95 = 41.67 ms; p99 = 41.67 ms; p99.9 = 50 ms. The underlying PTS grid is 30 fps (33.33 ms slots), but ~20% of slots are skipped — yielding 24.42 effective fps over the run. Only one stall >100 ms, at cb=52→53 (666 ms — session warmup).
+
+**Decision: schedule on PTS, add a monotonicity gate at the writer.**
+
+PTS-paced scheduling is sound: no B-frames means PTS == decode order == the schedule we want. The single observed swap is rare enough not to drive architecture, but it's not zero, so the Stage 1 head-frame pacer must **drop any incoming access unit with `pts ≤ last_shipped_pts`** rather than ship it out of order. With the Stage 2 ring buffer this becomes a non-issue (frames sort by PTS at insertion).
+
+**Implications carried forward**:
+
+- The Stage-2 ring buffer's `maxDepth=4 × 33ms = 133ms` latency upper-bound is based on the 30fps grid, not the observed 24fps effective rate — i.e., we're sized correctly for the steady-state PTS-delta the smoother actually paces against.
+- The 20% skip rate means underrun policy (emit nothing) will fire often — the WebRTC jitter buffer must absorb routinely-occurring 1-frame gaps. This is exactly its job; nothing new for it.
 
 ### Stage 1 — Minimal head-frame pacer
 
@@ -141,7 +157,7 @@ Image quality is the only column encoded already wins on; this plan exists to ne
 
 ## Decisions logged during implementation
 
-*(filled in as we go)*
+**Stage 0 — schedule on PTS, gate non-monotonic frames at writer (2026-05-28).** DAT 0.7.0 ships PTS only (no DTS / no B-frames). One adjacent-pair PTS swap in 8449 callbacks (0.012%) means the Stage 1 head-frame pacer must drop frames with `pts ≤ last_shipped_pts`. Stage 2's ring buffer subsumes this via PTS-ordered insertion. Full capture analysis above in Stage 0 §Results.
 
 ## Vincent's learnings
 
@@ -153,7 +169,7 @@ Image quality is the only column encoded already wins on; this plan exists to ne
 
 ## Status
 
-Drafted 2026-05-28 morning. No code yet. Stage 0 verification next.
+Drafted 2026-05-28 morning. Stage 0 verified 2026-05-28 — PTS monotonic (modulo 0.012% swap rate), no B-frames, schedule-on-PTS is sound. Stage 1 next.
 
 ## References
 
