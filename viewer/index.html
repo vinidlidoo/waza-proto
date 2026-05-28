@@ -295,8 +295,8 @@
       if (track === currentTrack) {
         currentTrack = undefined;
         currentVideo = undefined;
+        setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
       }
-      setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
     });
 
     room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
