@@ -6,6 +6,7 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
+- [16 — Encoded-frame smoother (publisher-side jitter buffer)](active/16-encoded-smoother.md) — PTS-paced ring buffer between plan 15's HEVC Annex-B extractor and the iPhone TCP listener. Gates flipping `glassesEncodedIngest=true` as default — stressed-regime A/B showed plan-12's smoother is architecturally load-bearing (9× worse worst-freeze without). Four stages: PTS-monotonicity verification → head-frame pacer → ring buffer + drop policy → lk-cli `--fps` alignment.
 - [15 — Encoded-frame ingest (HEVC pass-through)](active/15-encoded-frame-ingest.md) — drop the glasses-path HEVC decode + LiveKit H.264 re-encode entirely. Path B (livekit-cli TCP relay, shipped Jan 2026) recommended over Path A (rust-sdks#1048 native API, ~3–6+ months + Swift port). Three stages: viewer HEVC compat → iPhone TCP listener → Go relay + A/B measurement.
 ## Completed
 
