@@ -34,7 +34,7 @@ All three ran at **720×1280** (DAT's HIGH rung held throughout — today was a 
 
 Tooling: `scripts/run-paired-profile.sh` for the captures; `scripts/compare-profile-runs.js profiler/` for the table below. The `glasses encoded` column label is derived from `glasses_encoded_ingest` in the iOS `run_start` event (added 2026-05-27).
 
-The encoded path emits no iPhone-side per-window stats — the profiler observes a `TrackDelegate.didUpdateStatistics` callback, and pass-through publishes no iOS video track (the track lives at the relay). §3a is therefore dashes for encoded columns. This is a profiler gap, not a missing feature — counters like `dat_callbacks_delta` are being incremented internally; they just don't get serialised without a track to attach to. Filed as tech debt.
+The encoded path emits no iPhone-side per-window stats — the profiler observes a `TrackDelegate.didUpdateStatistics` callback, and pass-through publishes no iOS video track (the track lives at the relay). §3a is therefore dashes for encoded columns. This is a profiler gap, not a missing feature — counters like `dat_callbacks_delta` are being incremented internally; they just don't get serialised without a track to attach to. Filed as tech debt. **Update 2026-05-28: fixed.** Future encoded runs will populate §3a DAT delivery + capturer-handoff rows via a synthesised 1-second window timer; this report's encoded columns stay dashed because the underlying captures predate the fix.
 
 ---
 
@@ -139,7 +139,7 @@ The remaining concern is **wire-side packet loss**: encoded packets_lost was 36 
 1. **PTS-paced TCP writer on the iPhone** — the plan already described the shape: queue NAL units, write to socket on a wall-clock schedule aligned to original frame PTS, drop-newest-non-IDR-P on overrun. This is the missing stall-masking equivalent for pass-through. Expected outcome based on §3.4 mechanism: freeze count closer to re-encode's, no impact on jb_per_frame.
 2. **File-source baseline through the relay** — `lk room join --publish "$ASSET"` against a viewer with `&debugStats=1` to capture freeze metrics. Confirms the relay is innocent of timing additions.
 3. **Fix SIGSEGV on `EAAccessory` disconnect in encoded mode** — blocking before flipping `Config.glassesEncodedIngest = true` as default. Suspect: frame closure firing with a torn-down `CMVideoFormatDescription` while the HEVC Annex-B extractor walks parameter sets.
-4. **Tech debt: profiler-without-track**. The iPhone's `GlassesProfilerCounters` keeps counting in encoded mode but the profiler doesn't serialise per-window events without a `TrackDelegate` to drive them. Synthesise a window emitter from the existing counters when no track is attached.
+4. ~~**Tech debt: profiler-without-track**~~. ✅ Fixed 2026-05-28: `VideoQualityProfiler` runs a 1-second `DispatchSourceTimer` when `start()` is called with no attached track, emitting the same `profile_window` shape from `GlassesProfilerCounters` snapshots. Encoded runs starting from the next A/B will populate §3a DAT/capturer rows.
 
 ---
 

@@ -17,6 +17,10 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
     private var lastFramesEncoded: UInt?
     private var lastRemotePacketsLost: Int64?
     private var lastGlassesSnapshot: GlassesProfilerCounters.Snapshot?
+    // Plan 15 encoded-ingest publishes no iOS video track, so the LiveKit
+    // TrackDelegate never fires didUpdateStatistics. This timer drives the
+    // same profile_window emission off a wall clock when no track is attached.
+    private var syntheticWindowTimer: DispatchSourceTimer?
 
     func attach(to track: VideoTrack?) {
         lock.lock()
@@ -34,6 +38,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
         // the first window's deltas measure only post-start activity.
         let glassesBaseline = source == "glasses" ? GlassesProfilerCounters.shared.snapshot() : nil
         lock.lock()
+        let needsSyntheticWindows = observedTrack == nil && source == "glasses"
         self.run = run
         lastWindowStartMs = nil
         lastBytesSent = nil
@@ -41,6 +46,10 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
         lastRemotePacketsLost = nil
         lastGlassesSnapshot = glassesBaseline
         lock.unlock()
+
+        if needsSyntheticWindows {
+            startSyntheticWindowTimer()
+        }
 
         emit([
             "schema_version": 1,
@@ -66,6 +75,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
     }
 
     func stop(incomplete: Bool) -> Data? {
+        stopSyntheticWindowTimer()
         lock.lock()
         let ended = run
         run = nil
@@ -139,6 +149,74 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             "remote_round_trip_time_ms": value(remoteInbound?.roundTripTime.map { $0 * 1000.0 }),
         ]
 
+        if run.source == "glasses" {
+            mergeGlassesMetrics(into: &metrics, windowDurationMs: windowDurationMs)
+        }
+
+        let event: [String: Any] = [
+            "schema_version": 1,
+            "event": "profile_window",
+            "run_id": run.runID,
+            "side": "ios",
+            "source": run.source,
+            "stage": Self.stage,
+            "window_start_epoch_ms": nowMs,
+            "window_duration_ms": windowDurationMs,
+            "metrics": metrics,
+        ]
+        lock.unlock()
+
+        emit(event)
+    }
+
+    private func startSyntheticWindowTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0, leeway: .milliseconds(50))
+        timer.setEventHandler { [weak self] in self?.emitSyntheticWindow() }
+        lock.lock()
+        syntheticWindowTimer?.cancel()
+        syntheticWindowTimer = timer
+        lock.unlock()
+        timer.resume()
+    }
+
+    private func stopSyntheticWindowTimer() {
+        lock.lock()
+        let timer = syntheticWindowTimer
+        syntheticWindowTimer = nil
+        lock.unlock()
+        timer?.cancel()
+    }
+
+    // Emits the same profile_window shape as the TrackDelegate path but with
+    // outbound/RTCP fields nulled out (no iOS track in encoded-ingest mode).
+    // The glasses-counter merge still runs and produces the §3a stage 1–3 data.
+    private func emitSyntheticWindow() {
+        lock.lock()
+        guard let run else {
+            lock.unlock()
+            return
+        }
+        let nowMs = Self.epochMs()
+        let windowDurationMs = lastWindowStartMs.map { max(nowMs - $0, 1) } ?? 1000
+        lastWindowStartMs = nowMs
+
+        var metrics: [String: Any] = [
+            "outbound_width": NSNull(),
+            "outbound_height": NSNull(),
+            "outbound_fps": NSNull(),
+            "frames_encoded_delta": NSNull(),
+            "bitrate_bps": NSNull(),
+            "quality_limitation_reason": NSNull(),
+            "quality_limitation_resolution_changes": NSNull(),
+            "quality_limitation_duration_none_s": NSNull(),
+            "quality_limitation_duration_cpu_s": NSNull(),
+            "quality_limitation_duration_bandwidth_s": NSNull(),
+            "quality_limitation_duration_other_s": NSNull(),
+            "remote_packets_lost_delta": NSNull(),
+            "remote_jitter_ms": NSNull(),
+            "remote_round_trip_time_ms": NSNull(),
+        ]
         if run.source == "glasses" {
             mergeGlassesMetrics(into: &metrics, windowDurationMs: windowDurationMs)
         }
