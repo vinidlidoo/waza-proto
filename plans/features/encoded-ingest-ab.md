@@ -1,8 +1,8 @@
 # Plan 15 Stage 2: encoded-ingest vs re-encode A/B
 
-**Date:** 2026-05-27
+**Date:** 2026-05-27 (lucky-regime), 2026-05-28 (stressed-regime morning A/B added)
 **Author:** Vincent Ethier
-**Context:** Companion to [plan 15](../active/15-encoded-frame-ingest.md) Stage 2. The plan introduced the encoded-ingest path — HEVC Annex-B from the iPhone over TCP to a Mac-side `lk room join --publish h265://...` relay, no decode + no re-encode on the iPhone. This report compares it head-to-head with the shipped re-encode path under matched conditions.
+**Context:** Companion to [plan 15](../active/15-encoded-frame-ingest.md) Stage 2. The plan introduced the encoded-ingest path — HEVC Annex-B from the iPhone over TCP to a Mac-side `lk room join --publish h265://...` relay, no decode + no re-encode on the iPhone. This report compares it head-to-head with the shipped re-encode path under two BT regimes: the 720×1280 "lucky regime" of 2026-05-27 evening (§1–3 below), and the 504×896 "stressed regime" of 2026-05-28 morning (§4).
 
 ---
 
@@ -17,6 +17,8 @@ I ran three matched 3-min profile sessions, same room, same BT, same iPhone, sam
 - **Cross-run variability on encoded**: 45 → 76 freezes between two "identical" pass-through runs. Pass-through is timing-sensitive in a way the smoothed path isn't.
 
 **Conclusion**: pass-through's quality + encoder-drop wins are real and the architectural premise is validated. The freeze regression is the unfinished work — a PTS-paced iPhone-side TCP writer (or a small ring buffer pre-TCP) is the obvious next step, and the plan already sketched the design.
+
+**Update 2026-05-28 morning:** A stressed-regime A/B at 504×896 (BT dropped from HIGH) sharpens the conclusion — see [§4](#4-stressed-regime-ab-2026-05-28-morning-504896). Re-encode kept worst-freeze to 331 ms vs encoded's 3,068 ms (9× better) despite the smoother running at depth p50 = 1 and 18.4% underrun rate. Two new non-obvious findings: (a) the encoded path delivers ~25% more DAT callbacks (30 vs 24 fps) — first evidence that iPhone CPU contention from the decode/encode pipeline throttles DAT delivery; (b) the smoother is **architecturally load-bearing** under stress — the encoded path without it is unusable in real-world BT regimes. The PTS-paced TCP writer is now the gate, not polish.
 
 ---
 
@@ -134,12 +136,120 @@ The remaining concern is **wire-side packet loss**: encoded packets_lost was 36 
 
 ---
 
-## 4. Next steps
+## 4. Stressed-regime A/B (2026-05-28 morning, 504×896)
+
+The 2026-05-27 evening A/B was run in a benign BT regime — DAT held 720×1280 HIGH the whole time. Vincent re-ran on the morning of 2026-05-28 with the BT regime visibly worse: DAT dropped to MEDIUM (504×896) and stayed there. One encoded run + one re-encode run, both at 504×896, matched in time (5 minutes between captures).
+
+| Run | Path | iOS file | Viewer file |
+|---|---|---|---|
+| encoded | pass-through (`glassesEncodedIngest = true`) | `profiler/ios-2026-05-28T15-21-30Z.jsonl` | `profiler/2026-05-28T15-22-47Z-glasses-a-viewer.jsonl` |
+| re-encode | `Config.glassesSmoothingDepth = 2`, decode + re-encode | `profiler/ios-2026-05-28T15-39-51Z.jsonl` | `profiler/2026-05-28T15-41-08Z-glasses-a-viewer.jsonl` |
+
+A first re-encode capture (`profiler/excluded/`) was discarded because the viewer browser tab was backgrounded during the run — `<video>` painting paused, so rendered-frame and freeze counters reported zero across all windows even though the WebRTC decoder ran fine. The encoded run was unaffected (tab visible during that capture). Moved to `profiler/excluded/` to keep `compare-profile-runs.js` from picking it up on directory scans.
+
+This is also the first A/B with the synthesised-window profiler emitter (added 2026-05-28). §4a shows §3a's DAT delivery and capturer-handoff rows populated for encoded runs — that data was a `—` column in §3 above.
+
+### 4a. iPhone publisher side
+
+| Stage | Metric | glasses d=2 | glasses encoded |
+|---|---|---:|---:|
+| **1. DAT delivery** | callback fps | 23.95 | 30 |
+|  | callbacks (total) | 4,630 | 5,316 |
+|  | inter-frame gap p50 ms | 29.67 | 20.07 |
+|  | inter-frame gap p95 ms | 86.21 | 89.84 |
+|  | inter-frame gap max ms (worst) | 634.83 | 846.15 |
+| **2. In-app decode** | decoder rebuilds (total) | 0 | 0 |
+|  | decode errors (total) | 0 | 0 |
+|  | decoded frames (total) | 4,630 | 0 |
+| **3. Capturer hand-off** | capturer frames (total) | 5,384 | 5,316 |
+|  | unique frame % (1 − underruns/pulls) | 81.6% | — |
+| **4. LiveKit encode** | outbound fps | 25 | — |
+|  | frames encoded (total) | 4,461 | — |
+|  | encoder-drop rate (raw) | 17.1% | — _(see note)_ |
+|  | encoder-drop rate (excl underruns) | 0.0% | — _(see note)_ |
+|  | bitrate (median, Mbps) | 0.75 | — |
+|  | resolution | 504×896 | (504×896, observed) |
+|  | quality_limitation reason | none | — |
+| **5. Network (RTCP)** | remote jitter ms | 10.08 | — |
+|  | round-trip time ms | 57.13 | — |
+
+Cosmetic bug in `compare-profile-runs.js`: shows "encoder-drop rate (raw) = 100.0%" for encoded runs because `framesEncoded` is null and the script computes `1 - null/capturerFrames = 1`. Should render as `—`. Filed against the script.
+
+### 4b. Browser viewer side
+
+| Stage | Metric | glasses d=2 | glasses encoded |
+|---|---|---:|---:|
+| **6. WebRTC ingress** | inbound fps | 25 | 28 |
+|  | frames decoded (total) | 4,427 | 4,348 |
+|  | frames dropped (total) | 0 | 166 |
+|  | packets lost (total) | 15 | 16 |
+|  | jitter ms | 10 | 26 |
+|  | jitter-buffer per-frame delay ms | 121.59 | 127.58 |
+| **7. `<video>` playout** | rendered frames (total) | 4,210 | 4,023 |
+|  | playout-dropped frames | 90 (2.0%) | 263 (6.0%) |
+|  | freeze events (total) | **12** | **29** |
+|  | worst freeze ms | **331** | **3,068** |
+
+### 4c. Smoothing buffer (re-encode only)
+
+| Stage | Metric | glasses d=2 |
+|---|---|---:|
+| **8. Buffer** | configured depth | 2 |
+|  | pulls (total) | 5,384 |
+|  | overruns (total) | 235 |
+|  | underruns (total) | **991** |
+|  | underrun rate | **18.4%** _(was 1.2% in §2c)_ |
+|  | depth p50 (frames) | **1** _(was 5 in §2c)_ |
+|  | depth p95 (frames) | 3 _(was 6 in §2c)_ |
+|  | priming latency added (ms) | 66.67 |
+
+### 4d. Findings
+
+#### 4d.1 The encoded path delivers more DAT frames
+
+**Encoded callback fps = 30, re-encode = 24.** Same iPhone, same glasses, same BT, 5 minutes apart. The only thing that changed is what the iPhone does *after* DAT delivers each frame: encoded does HVCC→AnnexB + TCP send (lightweight), re-encode does VTDecompressionSession + LiveKit H.264 encode (CPU-heavy).
+
+This is the first evidence we have that **the iPhone's decode+re-encode pipeline contends with DAT callback delivery**. VideoToolbox + LiveKit's encoder pin a thread that competes with the BT/DAT listener; the encoded path's tiny TCP-send path doesn't. Implications:
+
+- The encoded path may run cooler / use less battery — worth instrumenting thermal state in a future run.
+- The freeze comparison is unfair to re-encode by ~6 fps of input — re-encode has fewer frames to work with, so its smoother sees more underruns than it would if DAT delivered the same 30 fps to both paths. **Re-encode's freeze win this morning is the smoother holding the line despite less input.**
+- If we ever build a PTS-paced TCP writer (the planned encoded-path fix), we should also revisit whether the re-encode path can be CPU-budgeted to keep DAT delivery healthy — this is independent technical debt against the smoothed path.
+
+#### 4d.2 The plan-12 smoother *is* the freeze-masking story under stress
+
+Re-encode this morning: smoother depth p50 = **1 frame** (vs 5 in last night's lucky regime), underrun rate **18.4%** (vs 1.2%). The buffer is essentially starving. Yet it still kept worst-freeze to **331 ms** vs encoded's **3,068 ms** (9× better) and freeze count to **12 vs 29** (2.4× better).
+
+The mechanism: when the buffer underruns, `BufferCapturer.capture` is called with the last delivered pixel buffer. The LiveKit H.264 encoder declines to encode bit-identical repeats — `framesEncoded` falls below `capturerFrames`, but those non-encodes are correctly classified as "smoother absorbing stalls", not "encoder dropping frames." This shows as the **17.1% raw encoder-drop rate / 0.0% drop rate excluding underruns** split. Sweep §5's mechanism in §3.4 of the lucky-regime report holds.
+
+The headline: **the smoother does its job hardest exactly when the BT regime is bad** — which is exactly when you want it to. Removing it (encoded mode) is brutal under stress.
+
+#### 4d.3 Latency parity holds in the bad regime
+
+JB per-frame delay: 121.6 ms (re-encode) vs 127.6 ms (encoded). Δ = 6 ms. Within the same noise band as last night's 104.6 / 112.7 / 98.5 ms triple.
+
+The "extra Mac-relay hop adds latency we're not measuring" concern from this morning's discussion ([#5 in next steps](#5-next-steps)) doesn't show up in the receiver-perceived latency. This *doesn't* prove the relay is free; it confirms only that whatever the relay adds is below the receiver's jitter-buffer noise floor in the BT-bound regime. Absolute latency instrumentation remains the right way to settle it definitively if we want a hard claim — see [#5 in next steps](#5-next-steps).
+
+#### 4d.4 Subjective ↔ data
+
+Vincent's live observations during the runs:
+- **Encoded**: "very choppy" → matches 29 freezes, 3-second worst freeze
+- **Re-encode**: "less choppy than encoded, image quality very degraded" → matches 12 freezes / 0.3s worst freeze + transcode loss on a low-bitrate (0.75 Mbps) encode at 504×896
+
+The trade-off is now visible from both directions: encoded keeps the per-frame quality but exposes the wire to DAT burstiness; re-encode masks the stalls but pays double codec loss + a low-bitrate encode budget that can't recover detail.
+
+#### 4d.5 What this means for the encoded-default decision
+
+Last night's lucky-regime data argued for "encoded is a real improvement, file the freeze regression as next-step work." This morning's stressed-regime data argues the freeze regression is **architecturally load-bearing**: without the smoother, the encoded path is unusable in the regimes the system is most likely to actually face (apartment BT, glasses-on-face motion, ambient interference). The PTS-paced TCP writer (next-step #1) isn't a polish item — it's the gate before encoded can ship as default.
+
+---
+
+## 5. Next steps
 
 1. **PTS-paced TCP writer on the iPhone** — the plan already described the shape: queue NAL units, write to socket on a wall-clock schedule aligned to original frame PTS, drop-newest-non-IDR-P on overrun. This is the missing stall-masking equivalent for pass-through. Expected outcome based on §3.4 mechanism: freeze count closer to re-encode's, no impact on jb_per_frame.
 2. **File-source baseline through the relay** — `lk room join --publish "$ASSET"` against a viewer with `&debugStats=1` to capture freeze metrics. Confirms the relay is innocent of timing additions.
 3. **Fix SIGSEGV on `EAAccessory` disconnect in encoded mode** — blocking before flipping `Config.glassesEncodedIngest = true` as default. Suspect: frame closure firing with a torn-down `CMVideoFormatDescription` while the HEVC Annex-B extractor walks parameter sets.
 4. ~~**Tech debt: profiler-without-track**~~. ✅ Fixed 2026-05-28: `VideoQualityProfiler` runs a 1-second `DispatchSourceTimer` when `start()` is called with no attached track, emitting the same `profile_window` shape from `GlassesProfilerCounters` snapshots. Encoded runs starting from the next A/B will populate §3a DAT/capturer rows.
+5. **Before closing this feature, decide whether absolute-latency instrumentation is needed.** Our only latency signal is `jitter_buffer_per_frame_delay_ms` (receiver-side target delay). It's invariant to absolute path latency: the encoded path's extra Mac-relay hop can add net glass-to-render time without changing this proxy. The Waza project pitch is sub-second POV, so if we want to defend an absolute number — or compare absolute latency between paths — file as tech debt before this feature lands: wall-clock-stamp frames at iPhone send, side-channel the stamp to the viewer via DataChannel, derive `glass_to_render_ms` per frame. NTP-synced clocks give ~tens of ms accuracy, plenty for our use. Decide at feature close whether to file.
 
 ---
 
