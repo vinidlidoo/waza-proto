@@ -47,6 +47,7 @@ for (const file of files) {
         runID: ev.run_id,
         source: null,
         depth: null,
+        encodedIngest: null,
         iosFile: null,
         viewerFile: null,
         iosWindows: [],
@@ -63,6 +64,9 @@ for (const file of files) {
       if (ev.side === 'ios' && typeof ev.smoothing_buffer_depth === 'number') {
         run.depth = ev.smoothing_buffer_depth;
       }
+      if (ev.side === 'ios' && typeof ev.glasses_encoded_ingest === 'boolean') {
+        run.encodedIngest = ev.glasses_encoded_ingest;
+      }
     } else if (ev.event === 'run_stop') {
       if (ev.side === 'ios') run.iosIncomplete = !!ev.incomplete;
       else if (ev.side === 'viewer') run.viewerIncomplete = !!ev.incomplete;
@@ -76,9 +80,14 @@ for (const file of files) {
 const runList = [...runs.values()]
   .filter((r) => r.iosWindows.length > 0 || r.viewerWindows.length > 0)
   .sort((a, b) => {
-    // front camera reference column first; then glasses by depth ascending;
-    // unknown depth at the end.
+    // front camera reference column first; then re-encode runs (by depth
+    // ascending); then encoded-ingest runs (chronological).
     if (a.source !== b.source) return a.source === 'frontCamera' ? -1 : 1;
+    const aLabel = labelOf(a);
+    const bLabel = labelOf(b);
+    const aEncoded = aLabel === 'glasses encoded';
+    const bEncoded = bLabel === 'glasses encoded';
+    if (aEncoded !== bEncoded) return aEncoded ? 1 : -1;
     const ad = a.depth ?? Number.POSITIVE_INFINITY;
     const bd = b.depth ?? Number.POSITIVE_INFINITY;
     if (ad !== bd) return ad - bd;
@@ -185,8 +194,15 @@ process.stdout.write(out.join('\n') + '\n');
 
 function labelOf(r) {
   if (r.source === 'glasses') {
+    // Plan 15 encoded-ingest runs publish no iOS video track, so the profiler
+    // emits no per-window stats — distinguishable from re-encode by iosWindows
+    // being empty. The run_start `glasses_encoded_ingest` field (added in plan
+    // 15) is the explicit signal; the iosWindows heuristic is the fallback
+    // for runs captured before that field was added.
+    const encoded = r.encodedIngest === true
+      || (r.encodedIngest == null && r.source === 'glasses' && r.iosWindows.length === 0 && r.viewerWindows.length > 0);
+    if (encoded) return 'glasses encoded';
     if (r.depth != null) return `glasses d=${r.depth}`;
-    // Old runs lack run_start.smoothing_buffer_depth; infer from window data.
     const hadBuffer = r.iosWindows.some((m) => typeof m.buffer_pulls_delta === 'number' && m.buffer_pulls_delta > 0);
     return hadBuffer ? 'glasses (buffer)' : 'glasses';
   }
@@ -240,12 +256,18 @@ function summarize(run) {
   const bufferUnderrunRate = bufferPulls && bufferUnderruns != null && bufferPulls > 0
     ? bufferUnderruns / bufferPulls : null;
 
+  // Encoded-ingest bypasses the smoother entirely; even though
+  // Config.glassesSmoothingDepth may still report a non-zero value in
+  // run_start, the buffer code path doesn't run. Surface as N/A in §3c.
+  const encodedIngest = labelOf(run) === 'glasses encoded';
+
   return {
     runID: run.runID,
     source: run.source,
-    depth: run.depth,
+    depth: encodedIngest ? null : run.depth,
+    encodedIngest,
     label: labelOf(run),
-    bufferActive,
+    bufferActive: bufferActive && !encodedIngest,
     // DAT
     datCallbackFps: med(ios.map((m) => m.dat_callback_fps)),
     datCallbacksTotal: sum(ios.map((m) => m.dat_callbacks_delta)),

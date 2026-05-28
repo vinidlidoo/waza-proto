@@ -52,6 +52,7 @@ final class VideoQualityProfiler: NSObject, TrackDelegate, @unchecked Sendable {
             "process_start_epoch_ms": Self.processStartEpochMs,
             "duration_ms": durationMs,
             "smoothing_buffer_depth": Config.glassesSmoothingDepth,
+            "glasses_encoded_ingest": Config.glassesEncodedIngest,
         ])
 
         return jsonData([
