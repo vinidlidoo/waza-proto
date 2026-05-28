@@ -74,10 +74,7 @@ plans/index.md
 ## Decisions logged during implementation
 
 - **`vercel dev` local setup needed `.env` (not `.env.local`).** The viewer's API endpoints (`/api/viewer-token`, `/api/publisher-token`) read four secrets from env: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `INVITE_SIGNING_SECRET` (plus `PUBLISHER_SIGNING_SECRET`). `vercel env pull` returned them all as empty strings because they're stored as Sensitive in the Vercel project (write-only — name pulls, value doesn't). Copying the root `.env` into `viewer/.env.local` *should* work per Vercel CLI docs but didn't on the installed CLI version; `cp` to `viewer/.env` did. Permanent fix: `ln -sf .env .env.local` inside `viewer/` so both names point at one file. Also added `.env*` to `viewer/.gitignore` to prevent the local copy from leaking into commits.
-
-## Vincent's learnings
-
-*(filled in as we go)*
+- **Added `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`** to fix a pre-existing latent bug surfaced by this plan. Without that meta, iOS Safari uses its legacy 980-CSS-px emulated viewport and downscales the whole page to fit physical screen width. Plan 14's `width: 504px` was being computed against the 980 viewport then zoomed out, leaving the video at ~40% of the screen with empty margins. The old `max-width: 100%` rule masked the bug because it sized to the also-zoomed parent. `viewport-fit=cover` allows the page to extend behind notch / home-indicator on modern iPhones; the `max-height: 100dvh` on the video already respects the safe area.
 
 ## Vincent's learnings
 
