@@ -6,10 +6,10 @@ Progressive-disclosure summary of architectural plans. One line per plan with a 
 
 ## Active
 
-_(no active plans)_
-
+- [15 — Encoded-frame ingest (HEVC pass-through)](active/15-encoded-frame-ingest.md) — drop the glasses-path HEVC decode + LiveKit H.264 re-encode entirely. Path B (livekit-cli TCP relay, shipped Jan 2026) recommended over Path A (rust-sdks#1048 native API, ~3–6+ months + Swift port). Three stages: viewer HEVC compat → iPhone TCP listener → Go relay + A/B measurement.
 ## Completed
 
+- [14 — Viewer fixed aspect box](completed/14-viewer-fixed-aspect-box.md) — locked the browser `<video>` to a fixed 9:16 slot at 504×896 native (CSS-only) so DAT resolution swaps stop reflowing the page. No pipeline change, no added latency. Sharpness/grain follow-up tracked separately as a `features.md` entry.
 - [13 — Glasses "disconnected" status message](completed/13-glasses-disconnected-status.md) — replaced the misleading "Grant Camera Access" gate row (which fired whenever the glasses were off-link) with a "Don glasses to connect" status label on the Glasses tab; "Disconnected" still shown on the Front camera tab. Also swapped `VideoView.layoutMode` `.fit → .fill` so both feeds fill the preview container at the same size without black bars.
 - [12 — Glasses smoothing buffer](completed/12-glasses-smoothing-buffer.md) — ring buffer + `CADisplayLink` pump @ 30 fps between DAT-decoded frames and `BufferCapturer.capture(...)`, masking BT Classic burstiness identified in plan 11. Apples-to-apples sweep at `{0, 2, 4}` (depth=6 skipped on latency-budget grounds) picked depth=2 as winner: **78% viewer-freeze reduction (45 → 10), 0.0% unique-frame loss at the encoder, ~100 ms latency added**. Depth=0 retained as Config knob escape hatch for when WDAT upstream improves. Full write-up: [features/glasses-stream-buffer-sweep.md](features/glasses-stream-buffer-sweep.md).
 - [11 — Video quality profiling](completed/11-video-quality-profiling.md) — staged profiler that started with LiveKit sender/receiver/playout stats, then added glasses DAT/decode counters. Stage 2 + Meta-docs verification + `.medium` config sweep proved BT Classic delivery cadence (median 23.8 fps, bursts to 49 fps, stalls to 695 ms) is the root cause of glasses stutter; lowering the requested resolution made things worse (encoder drops doubled). Fix promoted to [plan 12](completed/12-glasses-smoothing-buffer.md).
