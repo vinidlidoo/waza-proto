@@ -51,6 +51,7 @@
 
     let currentTrack;
     let currentVideo;
+    let publisherIdentity;
     let renderFrameCount = 0;
     let freezeCount = 0;
     let freezeMaxGapMs = 0;
@@ -276,18 +277,43 @@
     const room = new Room();
     let reconnecting = false;
 
+    // Derive status from (room.state, currentTrack). Avoids races where an
+    // imperative setStatus() after `await room.connect()` overwrites the
+    // "receiving from …" that TrackSubscribed already set when the publisher
+    // was streaming before the viewer joined.
+    function refreshStatus() {
+      if (currentTrack && publisherIdentity) {
+        setStatus(`receiving video from ${publisherIdentity}`, 'connected');
+        return;
+      }
+      switch (room.state) {
+        case 'connected':
+          setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+          break;
+        case 'reconnecting':
+          setStatus('reconnecting…');
+          break;
+        case 'connecting':
+          setStatus('connecting…');
+          break;
+        default:
+          setStatus('disconnected', 'error');
+      }
+    }
+
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (track.kind !== Track.Kind.Video) return;
       const el = track.attach();
       currentTrack = track;
       currentVideo = el;
+      publisherIdentity = participant.identity;
       el.autoplay = true;
       el.muted = true;        // required for autoplay on a dynamically-injected element after a publisher source swap
       el.playsInline = true;
       slotEl.replaceChildren(el);
       trackRenderFrames(el);
       el.play().catch((err) => console.warn('autoplay rejected:', err));
-      setStatus(`receiving video from ${participant.identity}`, 'connected');
+      refreshStatus();
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -295,7 +321,8 @@
       if (track === currentTrack) {
         currentTrack = undefined;
         currentVideo = undefined;
-        setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+        publisherIdentity = undefined;
+        refreshStatus();
       }
     });
 
@@ -326,7 +353,7 @@
         try {
           const { token, url } = await fetchToken();
           await room.connect(url, token);
-          setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+          refreshStatus();
         } catch (err) {
           showFetchError(err);
         } finally {
@@ -334,18 +361,19 @@
         }
         return;
       }
-      setStatus('disconnected', 'error');
+      refreshStatus();
     });
 
     room.on(RoomEvent.ConnectionStateChanged, (state) => {
       console.log('connection state:', state);
+      if (!reconnecting) refreshStatus();
     });
 
     setStatus('connecting…');
     try {
       const { token, url } = await fetchToken();
       await room.connect(url, token);
-      setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+      refreshStatus();
     } catch (err) {
       if (err.message && ['missing_invite', 'invalid_invite', 'invite_expired'].includes(err.message)) {
         showFetchError(err);
