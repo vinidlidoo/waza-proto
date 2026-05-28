@@ -54,6 +54,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_bonjour._tcp</string>
+		<string>_wazaproto-preflight._tcp</string>
 	</array>
 	<key>MWDAT</key>
 	<dict>

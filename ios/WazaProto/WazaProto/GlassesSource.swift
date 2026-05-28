@@ -7,6 +7,13 @@ import VideoToolbox
 
 @MainActor
 final class GlassesSource: VideoPublisher {
+    // Process-wide singleton TCP listener — bound once and kept across
+    // publish→unpublish cycles. Recreating per cycle hits a port-reuse race
+    // (kernel hasn't released the socket by the time the next start() runs;
+    // allowLocalEndpointReuse only helps cross-process). On unpublish we
+    // only drop the active client connection, not the listener itself.
+    private static var sharedTcpServer: EncodedFrameTCPServer?
+
     private let wearables: WearablesInterface
     private let deviceSelector: AutoDeviceSelector
     private let onTerminated: @MainActor () -> Void
@@ -40,8 +47,24 @@ final class GlassesSource: VideoPublisher {
         let tcpServer: EncodedFrameTCPServer?
 
         if useEncodedIngest {
-            let server = EncodedFrameTCPServer(port: Config.glassesEncodedIngestPort)
-            try server.start()
+            // Trigger + verify Local Network privacy before binding the listener.
+            // Listeners created pre-grant inherit a denied auth handle even if the
+            // user later flips the Settings toggle (Apple TN3179 + DTS thread 768666);
+            // running the NWBrowser preflight here is the deterministic way to
+            // both surface the prompt AND wait for actual grant.
+            let lnp = LocalNetworkAuthorization()
+            let granted = await lnp.requestAuthorization()
+            guard granted else {
+                throw GlassesSourceError.localNetworkDenied
+            }
+            let server: EncodedFrameTCPServer
+            if let existing = Self.sharedTcpServer {
+                server = existing
+            } else {
+                server = EncodedFrameTCPServer(port: Config.glassesEncodedIngestPort)
+                try server.start()
+                Self.sharedTcpServer = server
+            }
             self.tcpServer = server
             tcpServer = server
             bufferTrack = nil
@@ -243,7 +266,9 @@ final class GlassesSource: VideoPublisher {
         pump = nil
         smoother?.drain()
         smoother = nil
-        tcpServer?.stop()
+        // Drop the active client connection but leave the shared listener
+        // bound — recreating per cycle hits a port-reuse race.
+        tcpServer?.dropClient()
         tcpServer = nil
         if let stream { await stream.stop() }
         stream = nil
@@ -311,6 +336,7 @@ final class GlassesSource: VideoPublisher {
 enum GlassesSourceError: Error {
     case streamCreationFailed
     case sessionStoppedBeforeStart
+    case localNetworkDenied
 }
 
 // MARK: - Smoothing buffer (plan 12)

@@ -98,20 +98,23 @@ struct ContentView: View {
     /// What action the Glasses tab needs from the user before we can connect.
     /// Single source of truth for the pre-connect gate: `glassesGate` renders
     /// it, `showGlassesGate` checks emptiness, and `statusLabel` defers to
-    /// it. We deliberately do NOT proactively prompt for camera permission:
-    /// `cameraPermission` reads nil whenever the BT link is down, which would
-    /// paint a "Grant camera access" button in states where camera access
-    /// isn't actually the blocker (e.g. glasses just off-link, or a fresh
-    /// install where the permission has simply never been asked yet). The
-    /// Meta SDK surfaces the prompt itself when `session.start` runs, which
-    /// is the moment it actually matters.
+    /// it. The `activeDeviceID != nil` guard on `.grantCamera` is the key —
+    /// it ensures we only paint the grant button when glasses are actually
+    /// online, so a nil reading of `cameraPermission` reflects "never asked"
+    /// rather than "BT link is momentarily down" (which would push the user
+    /// toward the wrong fix). Plan 13 dropped this gate on the assumption
+    /// that the Meta SDK would surface its own prompt via `session.start` —
+    /// empirically false on fresh installs (DAT 0.7.0).
     private enum GlassesGateAction {
         case none
         case register
+        case grantCamera
     }
 
     private var glassesGateAction: GlassesGateAction {
-        glasses.registrationState != .registered ? .register : .none
+        if glasses.registrationState != .registered { return .register }
+        if glasses.activeDeviceID != nil, glasses.cameraPermission != .granted { return .grantCamera }
+        return .none
     }
 
     private var showGlassesGate: Bool { glassesGateAction != .none }
@@ -152,6 +155,11 @@ struct ContentView: View {
             gateRow(
                 title: "Register with Meta AI",
                 action: { Task { await glasses.register() } }
+            )
+        case .grantCamera:
+            gateRow(
+                title: "Grant camera access",
+                action: { Task { await glasses.requestCameraAccess() } }
             )
         }
     }
