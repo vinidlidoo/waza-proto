@@ -17,8 +17,8 @@ Implication: the 9× regression that motivated plan 16 is **not** a smoothing pr
 
 ## What's preserved in the tree
 
-- `ios/WazaProto/WazaProto/EncodedFrameSmoother.swift` — the final iteration (drop-oldest-non-IDR ring, depth 4, IDR detection via bitstream NAL header scan in `HEVCAnnexBExtractor.containsIRAP`). Off by default via `Config.glassesEncodedSmootherEnabled = false`. Bypass branch in `GlassesSource.swift` calls `tcpServer.send(bytes)` directly. Kept as a diagnostic record + reusable scaffolding if a future plan needs publisher-side framing.
-- `HEVCAnnexBExtractor.containsIRAP(annexB:)` — bitstream-based IRAP NAL scan. Useful independently for any future code that needs reliable HEVC keyframe detection.
+- ~~`ios/WazaProto/WazaProto/EncodedFrameSmoother.swift`~~ — **DELETED 2026-05-28** (plan 17 ship). Vincent chose not to keep the scaffolding: the finding is what matters, and a disabled file + flag is dead weight in a path we're not shipping. `Config.glassesEncodedSmootherEnabled` removed; `GlassesSource`'s encoded-ingest branch now calls `tcpServer.send(bytes)` directly with no smoother seam. The drop-oldest-non-IDR design lives on in this doc's §Findings if ever needed. (Git history: the implementation is recoverable from commit `7e6c17e`.)
+- `HEVCAnnexBExtractor.containsIRAP(annexB:)` — bitstream-based IRAP NAL scan. **Survives the deletion** — repurposed by plan 17's Stage 1 fix (parameter-set injection gated on true IRAPs). Useful independently for any future code that needs reliable HEVC keyframe detection.
 - Stage 0 capture: `profiler/plan16-stage0/2026-05-28T09-22Z.log` — PTS-delta measurement, still valid as the empirical answer to "is DAT monotonic, does it ship DTS." Yes, monotonic with 0.012% adjacent-pair swap rate; no DTS / no B-frames.
 
 ## Possible follow-ons (if encoded-default ever revisits)

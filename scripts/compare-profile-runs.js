@@ -159,6 +159,9 @@ emitRows(out, summaries, [
   ['', 'frames decoded (total)', (s) => fmtInt(s.framesDecodedTotal)],
   ['', 'frames dropped (total)', (s) => fmtInt(s.framesDroppedTotal)],
   ['', 'packets lost (total)', (s) => fmtInt(s.packetsLostTotal)],
+  ['', 'PLI sent (total)', (s) => fmtInt(s.pliCountTotal)],
+  ['', 'key frames decoded (total)', (s) => fmtInt(s.keyFramesDecodedTotal)],
+  ['', 'GOP length (s, ≈)', (s) => fmt(s.gopSeconds)],
   ['', 'jitter ms', (s) => fmt(s.viewerJitterMed)],
   ['', 'jitter-buffer per-frame delay ms', (s) => fmt(s.jbPerFrameMs)],
   ['**7. `<video>` playout**', 'rendered frames (total)', (s) => fmtInt(s.renderedFramesTotal)],
@@ -249,6 +252,16 @@ function summarize(run) {
   const playoutDroppedPct = framesDecodedTotal && framesDecodedTotal > 0
     ? (playoutDroppedTotal ?? 0) / framesDecodedTotal : null;
 
+  const keyFramesDecodedTotal = sum(viewer.map((m) => m.key_frames_decoded_delta));
+  const pliCountTotal = sum(viewer.map((m) => m.pli_count_delta));
+  const inboundFpsMed = med(viewer.map((m) => m.inbound_fps));
+  // GOP length ≈ frames-per-keyframe = DAT's IDR cadence, read off the viewer
+  // (the number we never captured directly). It's the recovery upper-bound for
+  // self-healing pass-through: a freeze can't outlast the next natural IDR.
+  const gopFrames = keyFramesDecodedTotal && keyFramesDecodedTotal > 0
+    ? framesDecodedTotal / keyFramesDecodedTotal : null;
+  const gopSeconds = gopFrames != null && inboundFpsMed ? gopFrames / inboundFpsMed : null;
+
   const cumulativeTargetDelay = max(viewer.map((m) => m.jitter_buffer_target_delay_ms));
   const jbPerFrameMs = cumulativeTargetDelay != null && framesDecodedTotal
     ? cumulativeTargetDelay / framesDecodedTotal : null;
@@ -294,10 +307,13 @@ function summarize(run) {
     remoteJitterMed: med(ios.map((m) => m.remote_jitter_ms)),
     remoteRttMed: med(ios.map((m) => m.remote_round_trip_time_ms)),
     // Viewer ingress
-    inboundFps: med(viewer.map((m) => m.inbound_fps)),
+    inboundFps: inboundFpsMed,
     framesDecodedTotal,
     framesDroppedTotal: sum(viewer.map((m) => m.frames_dropped_delta)),
     packetsLostTotal: sum(viewer.map((m) => m.packets_lost_delta)),
+    keyFramesDecodedTotal,
+    pliCountTotal,
+    gopSeconds,
     viewerJitterMed: med(viewer.map((m) => m.jitter_ms)),
     jbPerFrameMs,
     // Viewer playout

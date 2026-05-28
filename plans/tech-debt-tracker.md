@@ -37,18 +37,23 @@ The `MWDATCore.framework` XCFramework (Meta WDAT SDK v0.7) statically links Swif
 
 **Where to start:** File a tracking issue with Meta WDAT (link to `https://github.com/facebook/meta-wearables-dat-ios/issues`) referencing the dual-link conflict with `livekit/client-sdk-swift`'s SwiftProtobuf dependency. Until a vendor fix exists, document the warning is expected in `README.md` so it doesn't get re-debugged.
 
-## Glasses stream: bitrate / codec headroom
+## Glasses stream: re-encode default vs HEVC pass-through (plans 15–17)
 
-**What:** Step #7 swapped DAT to `videoCodec: .hvc1` and decodes HEVC in-app via `VTDecompressionSession`, then re-encodes inside the LiveKit Swift SDK (default H.264). This solved foreground-only frame delivery but the publisher still pays a HW decode + HW re-encode per frame — wasted work compared to passing the glasses' HEVC bytes straight through the SFU.
+**What:** The shipped glasses path (default) decodes the glasses' HEVC in-app via `VTDecompressionSession` and **re-encodes to H.265** inside the LiveKit Swift SDK (`preferredCodec: .h265`, `maxBitrate: 4 Mbps` cap; measured 1.54 Mbps actual). This pays a HW decode + HW re-encode per frame and adds a modest **second-generation (tandem-coding) softness** vs passing the glasses' HEVC bytes straight through. The zero-transcode alternative (Path B, `Config.glassesEncodedIngest`) is **built and in the tree but flag-gated OFF.**
 
-**Why deferred:** Step #7 done-criteria was "backgrounding works at parity," and it does. End-to-end HEVC pass-through requires either a not-yet-shipped Swift SDK API (`livekit/rust-sdks#1048` is in API design review with no Swift port even prototyped) or a Go relay process running `lk room join --publish h265://…` with TCP plumbing on the iPhone side. Neither is justified for v0.07.
+**Why deferred (i.e. why we ship the re-encode, not pass-through):** Plans 15–17 measured both. Pass-through's freezes were root-caused as **PLI deadlock** ([[encoded-pli-deadlock]]) — the relay can't manufacture a keyframe on PLI; the in-app encoder can, which is why re-encode is freeze-free. Plan 17 Stage 1 (parameter sets only at true IRAPs) cut pass-through worst-freeze 3,068 → 411 ms, but it still has GOP-bounded catch-up jumps (≤ ~3 s; DAT exposes no keyframe control — [[dat-no-encoder-control]]) and higher latency. The re-encode wins the live experience (snappier, ~half jb latency, no jumps, relay-free). Quality bar is "no *visible* tax," and the tandem softness clears it. Full decision: `plans/completed/17-encoded-freeze-recovery.md`.
+
+**Path B's own open bugs (must clear before it could ever become default):**
+- **SIGSEGV on Ray-Ban accessory disconnect in encoded mode** — the frame closure fires with a torn-down `CMVideoFormatDescription`; the re-encode path doesn't trip this (decoder rebuilt-or-bailed defensively). Guard the closure on a live format descriptor before extraction.
+- **Watchdog misses `EAAccessory`-level disconnects** — pre-existing (plan 13 territory); the BT accessory disconnect doesn't promote to `DeviceSession.stateStream`/`errorStream`, so `onTerminated` never fires and the UI shows "Connected" while detached.
+- **GOP-bounded catch-up jumps** — architectural (no DAT keyframe control); needs the deferred stateful GOP-replay Go relay (plan 17 Stage 2) to fix.
 
 **What would trigger paying it down:**
-- Battery / thermal complaints during long backgrounded sessions (the re-encode is the hot path).
-- Visible quality regression compared to "what the glasses actually shipped to us."
-- LiveKit shipping a Swift-native encoded-frame ingest API.
+- A quality-critical mode where the tandem softness becomes unacceptable → revisit Path B (fix the bugs above) or push the transcode to a Mac-side relay at high bitrate.
+- Battery / thermal complaints during long backgrounded sessions (the re-encode is the hot path; §4d.1 showed it starves DAT ~6 fps under stress).
+- LiveKit shipping a Swift-native encoded-frame ingest API **with** a stateful keyframe-on-PLI story (native ingest alone relocates the deadlock, doesn't close it).
 
-**Where to start:** See `plans/features/encoded-frame-ingest.md` for Path A (wait for native API) and Path B (lk CLI relay). Pairs with `plans/features/h265-publish.md` for the simpler codec-swap-only intermediate win.
+**Where to start:** `plans/completed/17-encoded-freeze-recovery.md` (Outcome + Shipping checklist §4) and `plans/completed/15-encoded-frame-ingest.md`. Path B wiring lives behind `Config.glassesEncodedIngest` in `GlassesSource.swift` (`HEVCAnnexBExtractor` + `EncodedFrameTCPServer`); the Mac relay is `scripts/run-glasses-relay.sh <ip>`.
 
 ## Glasses stream: background-transition reference-frame stutter
 

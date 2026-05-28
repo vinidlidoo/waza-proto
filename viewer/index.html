@@ -167,6 +167,11 @@
         frames_decoded_delta: delta(profile, 'framesDecoded', inbound?.framesDecoded),
         frames_dropped_delta: delta(profile, 'framesDropped', inbound?.framesDropped),
         packets_lost_delta: delta(profile, 'packetsLost', inbound?.packetsLost),
+        // keyFramesDecoded advancing = the viewer is resyncing on IDRs; its
+        // run-total rate is DAT's GOP cadence. pliCount = how often the decoder
+        // begged for a keyframe — the PLI-deadlock signature (plan 17).
+        key_frames_decoded_delta: delta(profile, 'keyFramesDecoded', inbound?.keyFramesDecoded),
+        pli_count_delta: delta(profile, 'pliCount', inbound?.pliCount),
         jitter_ms: jitterMs,
         jitter_buffer_target_delay_ms: jitterBufferTargetDelayMs,
         rendered_frames_delta: delta(profile, 'renderedFrames', renderedTotal),

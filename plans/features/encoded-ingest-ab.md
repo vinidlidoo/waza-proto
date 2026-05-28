@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-27 (lucky-regime), 2026-05-28 (stressed-regime morning A/B added)
 **Author:** Vincent Ethier
-**Context:** Companion to [plan 15](../active/15-encoded-frame-ingest.md) Stage 2. The plan introduced the encoded-ingest path — HEVC Annex-B from the iPhone over TCP to a Mac-side `lk room join --publish h265://...` relay, no decode + no re-encode on the iPhone. This report compares it head-to-head with the shipped re-encode path under two BT regimes: the 720×1280 "lucky regime" of 2026-05-27 evening (§1–3 below), and the 504×896 "stressed regime" of 2026-05-28 morning (§4).
+**Context:** Companion to [plan 15](../completed/15-encoded-frame-ingest.md) Stage 2. The plan introduced the encoded-ingest path — HEVC Annex-B from the iPhone over TCP to a Mac-side `lk room join --publish h265://...` relay, no decode + no re-encode on the iPhone. This report compares it head-to-head with the shipped re-encode path under two BT regimes: the 720×1280 "lucky regime" of 2026-05-27 evening (§1–3 below), and the 504×896 "stressed regime" of 2026-05-28 morning (§4).
 
 ---
 

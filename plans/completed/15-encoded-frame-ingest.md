@@ -93,7 +93,7 @@ ios/WazaProto/WazaProto/GlassesSource.swift   ← Annex-B extraction, TCP listen
 ios/WazaProto/WazaProto/Config.swift          ← new knob
 ios/WazaProto/WazaProto/RoomConnection.swift  ← skip video publish when in encoded-ingest mode
 ios/WazaProto/WazaProto/Info.plist            ← add UIRequiresPersistentWiFi; possibly NSLocalNetworkUsageDescription
-plans/active/15-encoded-frame-ingest.md       ← this file
+plans/completed/15-encoded-frame-ingest.md    ← this file
 plans/features/h265-publish.md                ← retire as Stage 0 closes it
 plans/features/encoded-frame-ingest.md        ← retire (superseded by this plan)
 plans/index.md
@@ -166,6 +166,8 @@ After the rushed first encoded vs sweep-day-d=2 comparison hit several confounde
 *(filled in as we go)*
 
 ## Status
+
+**Resolved 2026-05-28 → shipped.** Encoded pass-through (Path B) is implemented end-to-end and **retained flag-gated** (`Config.glassesEncodedIngest = false`). The Stage-2 freeze regression was root-caused as PLI deadlock and *fixed* in the bytestream (Stage 1 of [plan 17](17-encoded-freeze-recovery.md): parameter sets injected only at true IRAPs → worst-freeze 3,068 → 411 ms, PLI = 0). But the A/B then showed the **in-app re-encode path (now H.265 @ 4 Mbps cap) is the better live experience** (snappier, half the jb latency, no GOP catch-up jumps, relay-free), at the cost of modest second-generation softness. **Final call: Path A (re-encode) is the default; Path B stays in the tree behind the flag for a possible future return.** The "gating before flipping encoded default" criteria below are therefore **moot** (we are not flipping the default); Path B's open issues (SIGSEGV on accessory disconnect, watchdog gaps, GOP catch-up jumps) are logged as tech debt in plan 17 §4, to be cleared only if Path B is ever promoted. Full decision + evidence: [plan 17 Outcome](17-encoded-freeze-recovery.md#outcome-2026-05-28--final-decision).
 
 Drafted 2026-05-27.
 

@@ -5,9 +5,10 @@ import Foundation
 // shape VideoToolbox + DAT both produce) into Annex-B bytes (start-code
 // separated NAL units, the shape `lk room join --publish h265://` and
 // ffplay/ffmpeg expect on the wire). Prepends cached VPS/SPS/PPS before every
-// sync sample so a mid-stream consumer can start decoding from any keyframe;
-// the parameter sets ride out-of-band in CMVideoFormatDescription, not inline
-// in the bitstream.
+// IRAP keyframe — detected by scanning the converted bitstream, NOT the
+// sync-sample attachment, which DAT never sets — so a mid-stream consumer can
+// resync from any keyframe. The parameter sets ride out-of-band in
+// CMVideoFormatDescription, not inline in the bitstream.
 struct HEVCAnnexBExtractor {
     private static let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
 
@@ -37,12 +38,10 @@ struct HEVCAnnexBExtractor {
         }
         guard copyStatus == noErr else { return nil }
 
-        var output = Data()
-        output.reserveCapacity(totalLength + (cachedParameterSets?.count ?? 0))
-
-        if Self.isKeyframe(sampleBuffer: sampleBuffer), let ps = cachedParameterSets {
-            output.append(ps)
-        }
+        // Convert the HVCC body (length-prefixed NALs) to Annex-B first, then
+        // decide on parameter-set injection from the bitstream itself.
+        var body = Data()
+        body.reserveCapacity(totalLength)
 
         let headerLen = cachedHeaderLength
         var offset = 0
@@ -54,14 +53,29 @@ struct HEVCAnnexBExtractor {
             offset += headerLen
             let nalSize = Int(nalLength)
             guard nalSize > 0, offset + nalSize <= totalLength else { break }
-            output.append(contentsOf: Self.startCode)
+            body.append(contentsOf: Self.startCode)
             bytes.withUnsafeBufferPointer { buf in
                 if let base = buf.baseAddress {
-                    output.append(base.advanced(by: offset), count: nalSize)
+                    body.append(base.advanced(by: offset), count: nalSize)
                 }
             }
             offset += nalSize
         }
+
+        // Prepend VPS/SPS/PPS only at true IRAP access units (nal_unit_type
+        // 16..23), co-timestamped in the same access unit. The browser's HEVC
+        // packet buffer only accepts a keyframe as a valid stream-start when it
+        // carries VPS; injecting parameter sets on *every* frame (the prior
+        // behavior — DAT samples lack a sync-sample attachment, so the old
+        // isKeyframe() check always returned true) emits malformed keyframes
+        // that can wedge Chrome's decoder into a permanent PLI loop on loss.
+        guard let ps = cachedParameterSets, Self.containsIRAP(annexB: body) else {
+            return body
+        }
+        var output = Data()
+        output.reserveCapacity(ps.count + body.count)
+        output.append(ps)
+        output.append(body)
         return output
     }
 
@@ -91,22 +105,12 @@ struct HEVCAnnexBExtractor {
         return (data, Int(headerLen == 0 ? 4 : headerLen))
     }
 
-    // Defaults to true (assume keyframe → inject parameter sets) when sample
-    // attachments are absent. False negatives here break the downstream
-    // decoder; false positives only cost a few hundred extra bytes per frame.
-    static func isKeyframe(sampleBuffer: CMSampleBuffer) -> Bool {
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]],
-              let first = attachments.first
-        else { return true }
-        let notSync = first[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
-        return !notSync
-    }
-
     // Scan Annex-B bytes for an IRAP NAL (nal_unit_type 16..23: BLA, IDR,
     // CRA, reserved IRAP). These are the decoder-resync points; everything
     // else is a trailing/leading P-frame slice. DAT-sourced CMSampleBuffers
-    // lack sample attachments, so the bitstream is the only reliable signal —
-    // `isKeyframe(sampleBuffer:)` defaults true and gives no useful answer.
+    // lack sample attachments, so scanning the bitstream is the only reliable
+    // way to find keyframes — which is why annexB() gates parameter-set
+    // injection on this rather than on a sync-sample flag.
     static func containsIRAP(annexB: Data) -> Bool {
         return annexB.withUnsafeBytes { raw -> Bool in
             guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
