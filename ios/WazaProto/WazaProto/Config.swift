@@ -26,6 +26,14 @@ enum Config {
     // over a TCP listener on glassesEncodedIngestPort. The lk relay (or ffplay
     // for stage 1 verification) consumes from there. Default false ships the
     // opt-in path until measured against the current pipeline (stage 2).
-    static let glassesEncodedIngest = false
+    static let glassesEncodedIngest = true
     static let glassesEncodedIngestPort: UInt16 = 16400
+
+    // plan 16: when true, the encoded-ingest path runs HEVC frames through
+    // EncodedFrameSmoother before TCP send (PTS-paced ring buffer). When
+    // false, the smoother is bypassed and bytes go straight from the
+    // extractor to the TCP listener — same code path as the morning's
+    // stage-2 baseline. Used for A/B testing whether the smoother is
+    // helping or hurting.
+    static let glassesEncodedSmootherEnabled = false
 }

@@ -1,6 +1,45 @@
 # 16 — Encoded-frame smoother (publisher-side jitter buffer)
 
+**Status: abandoned 2026-05-28 — wrong layer. See §Findings below.**
+
 Add a PTS-paced smoothing layer between the iPhone's HEVC Annex-B extractor and its TCP listener so [plan 15](15-encoded-frame-ingest.md)'s pass-through path can absorb DAT's bursty delivery without freezing the viewer. The plan-12 smoother does this pre-encoder (pixel-buffer ring with repeat-last-on-underrun + encoder declining duplicate frames); plan 16 is the structural equivalent operating on pre-encoded HEVC access units.
+
+## Findings (2026-05-28 — why this plan is abandoned)
+
+Spent a full session implementing and testing the smoother. Three iterations of the overrun policy (single-slot replace, drop-newest-non-IDR, drop-oldest-non-IDR with proper bitstream IDR detection); each made the viewer worse than the unsmoothed baseline. The unsmoothed encoded path plays (with the same freeze cadence we measured this morning); any smoothing variant we tried produced "few frames then freeze" because dropped P-frames break the decode chain until the next IDR.
+
+Root cause is **not** smoother implementation bugs. It's two architectural facts we didn't appreciate when drafting:
+
+1. **lk-cli already paces.** `ReaderSampleProvider` reads the TCP socket and feeds a `LocalTrack` at `FrameDuration=33ms`. TCP's reliable byte stream buffers bursts on its own. Adding an iPhone-side smoother on top means double-pacing, and any drop we introduce is a drop lk-cli would have absorbed.
+2. **PLI has nowhere to land.** When the viewer's decoder hits a missing reference (dropped P, NAL corruption, jitter-buffer hiccup), it sends a Picture Loss Indication to the SFU asking for a fresh keyframe. The SFU forwards it to the publisher — which is `lk-cli`, not the iPhone. lk-cli forwards raw HEVC bytes from a TCP socket; it has no way to generate a keyframe on demand. The browser waits for the next natural IDR (~1 Hz at best from DAT). If the decoder times out first, it stays frozen even after subsequent IDRs arrive — only a viewer refresh (which creates a new subscriber, prompting the SFU to forward the most recent keyframe) recovers it. **This is what we observed all session: occasional long freezes cleared by browser refresh.** The morning's "9× worst-freeze in encoded mode" measurement was conflating BT burstiness with this PLI-deadlock; it was mostly the latter.
+
+Implication: the 9× regression that motivated plan 16 is **not** a smoothing problem. It's an architectural cost of HEVC pass-through via lk-cli — no PLI responsiveness. Re-encode on iPhone wins this column because the H.264 encoder responds to PLI by emitting a fresh IDR immediately.
+
+## What's preserved in the tree
+
+- `ios/WazaProto/WazaProto/EncodedFrameSmoother.swift` — the final iteration (drop-oldest-non-IDR ring, depth 4, IDR detection via bitstream NAL header scan in `HEVCAnnexBExtractor.containsIRAP`). Off by default via `Config.glassesEncodedSmootherEnabled = false`. Bypass branch in `GlassesSource.swift` calls `tcpServer.send(bytes)` directly. Kept as a diagnostic record + reusable scaffolding if a future plan needs publisher-side framing.
+- `HEVCAnnexBExtractor.containsIRAP(annexB:)` — bitstream-based IRAP NAL scan. Useful independently for any future code that needs reliable HEVC keyframe detection.
+- Stage 0 capture: `profiler/plan16-stage0/2026-05-28T09-22Z.log` — PTS-delta measurement, still valid as the empirical answer to "is DAT monotonic, does it ship DTS." Yes, monotonic with 0.012% adjacent-pair swap rate; no DTS / no B-frames.
+
+## Possible follow-ons (if encoded-default ever revisits)
+
+Listed for record; not committing to any of these.
+
+- **Force higher IDR cadence on DAT.** If the SDK exposes a "request keyframe" or "IDR interval" parameter, drop it from ~1 Hz to ~5 Hz. Bandwidth cost in exchange for faster PLI recovery (still not on-demand).
+- **Synthesize PLI responsiveness in a stateful relay.** Replace lk-cli with a small Go service that buffers the last IDR + the live P-frame stream, and on a PLI from the SFU, replays the buffered IDR + subsequent P-frames as a fast catch-up. Adds complexity; LiveKit Server SDK Go gives the building blocks.
+- **Native LiveKit Swift SDK encoded-video-ingest** ([rust-sdks#1048](https://github.com/livekit/rust-sdks/issues/1048) + Swift port). Once the iPhone is itself the LiveKit publisher of HEVC, it can respond to PLI directly via WebRTC — no relay, no double-pacing. Still 3–6+ months out.
+
+## Decisions logged during implementation
+
+**Stage 0 — schedule on PTS, gate non-monotonic frames at writer (2026-05-28).** DAT 0.7.0 ships PTS only (no DTS / no B-frames). One adjacent-pair PTS swap in 8449 callbacks (0.012%) means the Stage 1 head-frame pacer must drop frames with `pts ≤ last_shipped_pts`. Stage 2's ring buffer subsumes this via PTS-ordered insertion. Full capture analysis in §Stage 0 §Results below.
+
+**Stage 1 abandoned — single-slot incompatible with HEVC IDR/P dependency (2026-05-28).** Implemented single-slot head-frame pacer. First test: viewer showed one frame and froze. Root cause: held IDR gets overwritten by next P-frame push; decoder loses keyframe sync after the first frame. Single-slot is architecturally unviable for any codec with inter-frame prediction. Moved to Stage 2 ring buffer.
+
+**Stage 2 first attempt abandoned — drop-newest decays release rate (2026-05-28).** Implemented depth-4 ring with drop-newest-non-IDR + naive sample-attachment IDR detection. Empirically: pushes counted 2910, releases 386 (13.3% rate), drop rate 86.6%. Sample-attachment heuristic defaults true on DAT samples → all entries flagged IDR → real IDRs got dropped by the "if incoming IDR and full, drop incoming" branch. Even with that bug fixed, drop-newest creates a feedback loop: dropped pushes widen consecutive PTS gaps in the buffer, schedule deadlines drift further out, release rate decays toward 3 fps from a 30 fps source.
+
+**Stage 2 second attempt abandoned — drop-oldest-non-IDR (with proper bitstream IDR detection) still produced "few frames then freeze" (2026-05-28).** Added `HEVCAnnexBExtractor.containsIRAP(annexB:)` to detect IDRs by scanning Annex-B NAL types (16..23 = IRAP). Wired through smoother as `isIDR` parameter. Overrun policy: drop oldest non-IDR. Empirically: drop rate 30%, IDR rate ~1 Hz. With drop rate that high virtually every GOP loses at least one P-frame, viewer can't decode anything between IDRs → near-permanent freeze. Architectural conclusion: smoothing on iPhone is the wrong layer (see §Findings).
+
+**Architectural conclusion — abandon (2026-05-28).** Unsmoothed encoded path tested (`Config.glassesEncodedSmootherEnabled = false`) — confirmed playable with the same freeze cadence as morning. Freezes are PLI-deadlock at lk-cli, not BT burstiness. Plan 16's premise was wrong.
 
 ## Goal
 
@@ -155,9 +194,7 @@ Image quality is the only column encoded already wins on; this plan exists to ne
 - **lk-cli `ReaderSampleProvider` blocks on `Read()`** during emit-nothing windows — if it does, our underrun-policy gap shows up as TCP backpressure rather than viewer jitter-buffer absorption. Stage 3 must verify this; if it bites, the fix may be a tiny write of a "skip" marker or NAL drop to keep lk-cli's reader moving.
 - **Latency budget**: at maxDepth=4, the smoother adds up to 4 × 33 ms = 133 ms steady-state. Document in the final A/B report.
 
-## Decisions logged during implementation
-
-**Stage 0 — schedule on PTS, gate non-monotonic frames at writer (2026-05-28).** DAT 0.7.0 ships PTS only (no DTS / no B-frames). One adjacent-pair PTS swap in 8449 callbacks (0.012%) means the Stage 1 head-frame pacer must drop frames with `pts ≤ last_shipped_pts`. Stage 2's ring buffer subsumes this via PTS-ordered insertion. Full capture analysis above in Stage 0 §Results.
+## Decisions logged during implementation (legacy — superseded by §Findings)
 
 ## Vincent's learnings
 
@@ -169,7 +206,7 @@ Image quality is the only column encoded already wins on; this plan exists to ne
 
 ## Status
 
-Drafted 2026-05-28 morning. Stage 0 verified 2026-05-28 — PTS monotonic (modulo 0.012% swap rate), no B-frames, schedule-on-PTS is sound. Stage 1 next.
+**Abandoned 2026-05-28.** See §Findings. Code preserved but disabled (`Config.glassesEncodedSmootherEnabled = false`). Plan moves out of `active/` to `completed/` as an architectural-finding record, not a shipped feature.
 
 ## References
 

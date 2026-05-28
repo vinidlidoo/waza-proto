@@ -26,6 +26,7 @@ final class GlassesSource: VideoPublisher {
     private var smoother: FrameSmoothingBuffer?
     private var pump: SmoothingBufferPump?
     private var tcpServer: EncodedFrameTCPServer?
+    private var encodedSmoother: EncodedFrameSmoother?
 
     init(
         wearables: WearablesInterface,
@@ -44,6 +45,7 @@ final class GlassesSource: VideoPublisher {
         let bufferTrack: LocalVideoTrack?
         let capturer: BufferCapturer?
         let smoother: FrameSmoothingBuffer?
+        let encodedSmoother: EncodedFrameSmoother?
         let tcpServer: EncodedFrameTCPServer?
 
         if useEncodedIngest {
@@ -67,10 +69,22 @@ final class GlassesSource: VideoPublisher {
             }
             self.tcpServer = server
             tcpServer = server
+            let counters = GlassesProfilerCounters.shared
+            if Config.glassesEncodedSmootherEnabled {
+                let es = EncodedFrameSmoother(emit: { [server] data in
+                    server.send(data)
+                    counters.recordCapturedFrame()
+                })
+                self.encodedSmoother = es
+                encodedSmoother = es
+                print("[glasses] encoded-ingest mode: TCP server on port \(Config.glassesEncodedIngestPort), plan-16 smoother enabled")
+            } else {
+                encodedSmoother = nil
+                print("[glasses] encoded-ingest mode: TCP server on port \(Config.glassesEncodedIngestPort), plan-16 smoother BYPASSED")
+            }
             bufferTrack = nil
             capturer = nil
             smoother = nil
-            print("[glasses] encoded-ingest mode: TCP server on port \(Config.glassesEncodedIngestPort)")
         } else {
             let track = LocalVideoTrack.createBufferTrack(
                 name: "glasses-camera",
@@ -95,6 +109,7 @@ final class GlassesSource: VideoPublisher {
                 print("[glasses] smoothing buffer bypassed (depth=0)")
             }
             smoother = s
+            encodedSmoother = nil
             tcpServer = nil
         }
 
@@ -149,12 +164,21 @@ final class GlassesSource: VideoPublisher {
                 let sampleBuffer = frame.sampleBuffer
 
                 if let tcpServer {
-                    // Encoded-ingest path: HVCC → Annex-B → TCP. No VT decode,
-                    // no smoother, no LiveKit encoder. The lk relay (or ffplay
-                    // in stage 1) consumes from the socket.
+                    // Encoded-ingest path: HVCC → Annex-B → (plan-16 smoother or
+                    // direct) → TCP. When smoother is enabled it paces releases
+                    // on source PTS and drops oldest-non-IDR on overrun; when
+                    // disabled, bytes go straight to TCP (matches morning's
+                    // baseline).
                     guard let bytes = extractor.annexB(from: sampleBuffer) else { return }
-                    tcpServer.send(bytes)
-                    counters.recordCapturedFrame()
+                    if let encodedSmoother {
+                        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                        let ptsNs = Int64(CMTimeGetSeconds(pts) * 1_000_000_000)
+                        let isIDR = HEVCAnnexBExtractor.containsIRAP(annexB: bytes)
+                        encodedSmoother.push(bytes, ptsNs: ptsNs, isIDR: isIDR)
+                    } else {
+                        tcpServer.send(bytes)
+                        counters.recordCapturedFrame()
+                    }
                     if !fired {
                         fired = true
                         continuation.yield()
@@ -266,6 +290,10 @@ final class GlassesSource: VideoPublisher {
         pump = nil
         smoother?.drain()
         smoother = nil
+        // Stop the smoother first so its timer can't fire one last send
+        // against a torn-down client.
+        encodedSmoother?.stop()
+        encodedSmoother = nil
         // Drop the active client connection but leave the shared listener
         // bound — recreating per cycle hits a port-reuse race.
         tcpServer?.dropClient()

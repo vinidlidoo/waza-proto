@@ -94,11 +94,44 @@ struct HEVCAnnexBExtractor {
     // Defaults to true (assume keyframe → inject parameter sets) when sample
     // attachments are absent. False negatives here break the downstream
     // decoder; false positives only cost a few hundred extra bytes per frame.
-    private static func isKeyframe(sampleBuffer: CMSampleBuffer) -> Bool {
+    static func isKeyframe(sampleBuffer: CMSampleBuffer) -> Bool {
         guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]],
               let first = attachments.first
         else { return true }
         let notSync = first[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
         return !notSync
+    }
+
+    // Scan Annex-B bytes for an IRAP NAL (nal_unit_type 16..23: BLA, IDR,
+    // CRA, reserved IRAP). These are the decoder-resync points; everything
+    // else is a trailing/leading P-frame slice. DAT-sourced CMSampleBuffers
+    // lack sample attachments, so the bitstream is the only reliable signal —
+    // `isKeyframe(sampleBuffer:)` defaults true and gives no useful answer.
+    static func containsIRAP(annexB: Data) -> Bool {
+        return annexB.withUnsafeBytes { raw -> Bool in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+            let n = raw.count
+            var i = 0
+            while i + 3 < n {
+                if base[i] != 0 || base[i + 1] != 0 {
+                    i += 1
+                    continue
+                }
+                var hdr = -1
+                if base[i + 2] == 0 && i + 3 < n && base[i + 3] == 1 {
+                    hdr = i + 4
+                } else if base[i + 2] == 1 {
+                    hdr = i + 3
+                }
+                if hdr > 0 && hdr < n {
+                    let nalType = (base[hdr] >> 1) & 0x3F
+                    if nalType >= 16 && nalType <= 23 { return true }
+                    i = hdr + 1
+                } else {
+                    i += 1
+                }
+            }
+            return false
+        }
     }
 }
