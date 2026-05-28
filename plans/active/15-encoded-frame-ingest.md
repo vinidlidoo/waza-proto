@@ -131,4 +131,4 @@ No Go code in this repo — `lk` is invoked from the command line.
 
 ## Status
 
-Drafted 2026-05-27. Awaiting kickoff on Stage 0.
+Drafted 2026-05-27. Stage 0 implementation committed on `plan/15-encoded-frame-ingest` (`abdf7b8`); builds clean, app boots on device without crash. Awaiting glasses-on-face verification of viewer HEVC playback (Safari + Chrome on macOS) and the ~30% bitrate drop via plan 11 profiler before promoting Stage 1.
