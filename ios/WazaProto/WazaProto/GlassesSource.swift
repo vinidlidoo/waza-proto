@@ -187,7 +187,7 @@ final class GlassesSource: VideoPublisher {
 
         publication = try await room.localParticipant.publish(
             videoTrack: bufferTrack,
-            options: VideoPublishOptions(simulcast: false)
+            options: VideoPublishOptions(simulcast: false, preferredCodec: .h265)
         )
         print("[glasses] track published to LiveKit")
         return bufferTrack
