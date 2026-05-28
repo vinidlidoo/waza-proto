@@ -119,7 +119,11 @@ No Go code in this repo — `lk` is invoked from the command line.
 
 ## Decisions logged during implementation
 
-*(filled in as we go)*
+- **Stage 0 viewer compat confirmed (2026-05-27).** Vincent verified `video/H265` on Chrome `chrome://webrtc-internals` with the codec swap; Safari + Chrome both play. The plan-level "viewer HEVC over LiveKit WebRTC" risk is closed.
+- **Stage 1 file layout split (2026-05-27).** Plan envisioned all Stage 1 logic landing in `GlassesSource.swift`. Implementation pulled the Annex-B conversion and the TCP server into their own files (`HEVCAnnexBExtractor.swift`, `EncodedFrameTCPServer.swift`) so `GlassesSource.swift` stays under control (~270 added lines of pure logic in two files vs one bloated file). `GlassesSource.swift` only carries the wiring + branch-on-toggle.
+- **TCP single-client policy: latest wins.** Plan said "single client"; implementation drops the prior socket on a new connect (rather than rejecting the new one). Reason: makes ffplay reconnects during testing painless, and the `lk` relay should never produce a second concurrent client in normal use.
+- **No Stage 1 pacer / backpressure logic.** `NWConnection.send` with completion-logging only. The plan-12 smoothing-buffer carryover question is explicitly Stage 2's call — measure freeze rate + `jitter_buffer_per_frame_delay_ms` before designing one.
+- **Parameter-set injection per keyframe, not per IDR-type-check.** Used `kCMSampleAttachmentKey_NotSync` to detect keyframes rather than parsing the NAL header's `nal_unit_type`. CoreMedia gives us the sync-sample flag for free; HEVC NAL parsing is finicky (16-21 covers IDR/CRA/BLA, but exact mapping varies). On the false-positive side (sync sample absent but we inject anyway), it costs a few hundred bytes per frame in the worst case.
 
 ## Vincent's learnings
 
@@ -131,4 +135,8 @@ No Go code in this repo — `lk` is invoked from the command line.
 
 ## Status
 
-Drafted 2026-05-27. Stage 0 implementation committed on `plan/15-encoded-frame-ingest` (`abdf7b8`); builds clean, app boots on device without crash. Awaiting glasses-on-face verification of viewer HEVC playback (Safari + Chrome on macOS) and the ~30% bitrate drop via plan 11 profiler before promoting Stage 1.
+Drafted 2026-05-27.
+
+- **Stage 0** — shipped on branch `plan/15-encoded-frame-ingest` (`abdf7b8`). Viewer compat verified: Vincent confirmed `video/H265` on Chrome WebRTC internals; Safari + Chrome both play. Bitrate-drop measurement deferred to Stage 2's A/B (the meaningful comparison) rather than as a Stage 0 gate.
+- **Stage 1** — implementation shipped on same branch (`f660e53`). `Config.glassesEncodedIngest` toggle, `HEVCAnnexBExtractor`, `EncodedFrameTCPServer` on port 16400, `Info.plist UIRequiresPersistentWiFi=YES`. Builds clean, installed to device. **Awaiting glasses-on-face verification: ffplay can decode the TCP bytestream as recognizable POV; hinge-fold tears down cleanly; 5-min backgrounded-from-Home-screen test holds the stream.**
+- **Stage 2** — not started. Depends on Stage 1 verification.
