@@ -33,6 +33,8 @@ Default path: `<parent>/waza-proto-<branch>`. Idempotent — re-run to re-provis
 
 ## Teardown
 
+To land the branch and clean up, use [merge-worktree](../merge-worktree/SKILL.md). To **discard** a worktree without merging:
+
 ```bash
-git worktree remove <worktree-path>     # --force if it has uncommitted/untracked junk
+git worktree remove --force <worktree-path> && git branch -D <branch>
 ```
