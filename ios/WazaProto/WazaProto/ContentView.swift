@@ -74,11 +74,12 @@ struct ContentView: View {
                 .buttonStyle(.borderless)
             }
 
-            if case .connected = connection.status {
-                coachButton
+            HStack(spacing: 12) {
+                if case .connected = connection.status {
+                    coachButton
+                }
+                actionButton
             }
-
-            actionButton
         }
         .padding()
         .onAppear {
@@ -256,21 +257,20 @@ struct ContentView: View {
         Group {
             if connection.coachBusy {
                 ProgressView()
+                    .frame(maxWidth: .infinity)
             } else if connection.coachPresent {
-                Button("Dismiss coach", systemImage: "person.crop.circle.badge.xmark") {
-                    connection.dismissCoach()
-                }
-                .buttonStyle(.bordered)
-                .tint(.purple)
+                Button("bye", systemImage: "sparkles") { connection.dismissCoach() }
+                    .buttonStyle(.bordered)
+                    .tint(.purple)
+                    .frame(maxWidth: .infinity)
             } else {
-                Button("Summon coach", systemImage: "sparkles") {
-                    connection.summonCoach()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
+                Button("help", systemImage: "sparkles") { connection.summonCoach() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .frame(height: 44)
+        .frame(height: 50)
     }
 
     @ViewBuilder
@@ -284,11 +284,14 @@ struct ContentView: View {
                 Button("Connect") { connection.connect(source: source, glasses: glasses) }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canConnect)
+                    .frame(maxWidth: .infinity)
             case .connecting, .switching:
                 ProgressView()
+                    .frame(maxWidth: .infinity)
             case .connected:
                 Button("Disconnect", role: .destructive, action: connection.disconnect)
                     .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
             }
         }
         .frame(height: 50)
