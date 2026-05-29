@@ -50,6 +50,11 @@ final class RoomConnection: NSObject, ObservableObject {
     @Published private(set) var localVideoTrack: VideoTrack?
     @Published private(set) var watcherCount: Int = 0
     @Published private(set) var profileRunID: String?
+    // The AI coach (agent_name=waza-coach) is an opt-in participant: present
+    // reflects whether it's currently in the room; busy guards a dispatch
+    // request in flight. The button in ContentView reads both.
+    @Published private(set) var coachPresent: Bool = false
+    @Published private(set) var coachBusy: Bool = false
 
     // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
     // .suspend() on any track with source=.camera (which includes our
@@ -58,6 +63,7 @@ final class RoomConnection: NSObject, ObservableObject {
     let room = Room(roomOptions: RoomOptions(suspendLocalVideoTracksInBackground: false))
     private var publisher: VideoPublisher?
     private let tokenClient: PublisherTokenClient
+    private let coachClient = CoachDispatchClient()
     private let profiler = VideoQualityProfiler()
     private var profileStopTask: Task<Void, Never>?
     private var profileRunCounts: [Source: Int] = [:]
@@ -159,7 +165,30 @@ final class RoomConnection: NSObject, ObservableObject {
             localVideoTrack = nil
             profiler.attach(to: nil)
             watcherCount = 0
+            coachPresent = false
+            coachBusy = false
             status = .disconnected
+        }
+    }
+
+    /// Summon the AI coach into the room (explicit dispatch — the worker isn't
+    /// auto-dispatched). `coachPresent` flips once the agent participant joins.
+    func summonCoach() { dispatchCoach(.summon) }
+
+    /// Dismiss the AI coach — removes the agent participant, ending its billed
+    /// Gemini session. `coachPresent` flips once it disconnects.
+    func dismissCoach() { dispatchCoach(.dismiss) }
+
+    private func dispatchCoach(_ action: CoachDispatchClient.Action) {
+        guard case .connected = status, !coachBusy else { return }
+        coachBusy = true
+        Task {
+            defer { coachBusy = false }
+            do {
+                try await coachClient.dispatch(action)
+            } catch {
+                print("[coach] \(action.rawValue) failed: \(error)")
+            }
         }
     }
 
@@ -224,6 +253,15 @@ final class RoomConnection: NSObject, ObservableObject {
         })
     }
 
+    // Recompute room-derived state on any participant change. The coach joins
+    // with an `agent-` identity prefix (LiveKit Agents convention); viewers are
+    // `viewer-…`. So one scan updates both counts.
+    private func refreshParticipants() {
+        let identities = room.remoteParticipants.values.map { $0.identity?.stringValue ?? "" }
+        watcherCount = Self.watcherCount(identities: identities)
+        coachPresent = identities.contains { $0.hasPrefix("agent-") }
+    }
+
     nonisolated static func watcherCount(identities: [String]) -> Int {
         identities.filter { $0.hasPrefix("viewer-") }.count
     }
@@ -266,11 +304,11 @@ final class RoomConnection: NSObject, ObservableObject {
 
 extension RoomConnection: RoomDelegate {
     nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
-        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+        Task { @MainActor in self.refreshParticipants() }
     }
 
     nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+        Task { @MainActor in self.refreshParticipants() }
     }
 
     // Diagnostic for the coach-audio path: confirm the agent's audio track is

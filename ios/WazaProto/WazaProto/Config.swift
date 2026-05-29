@@ -27,6 +27,10 @@ enum Config {
         URL(string: "\(publisherHost)/api/publisher-token?auth=\(auth)")!
     }
 
+    static func coachDispatchURL() -> URL {
+        URL(string: "\(publisherHost)/api/coach-dispatch")!
+    }
+
     // plan 12: smoothing buffer between in-app HEVC decoder and BufferCapturer.
     // Depth = primeDepth = frames the pump waits for before starting to pull,
     // and the approximate steady-state buffer occupancy. Each slot adds ~33 ms

@@ -161,10 +161,16 @@ def _wire_latency_logging(session: AgentSession) -> None:
             )
 
 
-# Omitting agent_name => automatic dispatch: the worker joins every new room
-# (the demo uses a single fixed room). Set agent_name + a dispatch rule later
-# if we need to gate which rooms the coach joins.
-@server.rtc_session()
+# agent_name gates dispatch: with it set, the worker is NOT auto-dispatched to
+# every room — it joins only when explicitly summoned (viewer/api/coach-dispatch
+# → AgentDispatchClient.createDispatch). That stops the e2e suite / stray
+# viewers from waking a *billed* Gemini Live session, and powers the app's
+# summon/dismiss button. Keep this name in sync with COACH_AGENT_NAME in that
+# endpoint.
+COACH_AGENT_NAME = "waza-coach"
+
+
+@server.rtc_session(agent_name=COACH_AGENT_NAME)
 async def entrypoint(ctx: JobContext) -> None:
     ctx.log_context_fields = {"room": ctx.room.name}
 

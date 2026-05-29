@@ -74,6 +74,10 @@ struct ContentView: View {
                 .buttonStyle(.borderless)
             }
 
+            if case .connected = connection.status {
+                coachButton
+            }
+
             actionButton
         }
         .padding()
@@ -242,6 +246,31 @@ struct ContentView: View {
                 .buttonStyle(.bordered)
             Spacer()
         }
+    }
+
+    // Summon / dismiss the AI coach. Only meaningful once the room exists, so
+    // ContentView shows it only while `.connected`. The label tracks the
+    // coach's actual presence in the room (RoomConnection.coachPresent).
+    @ViewBuilder
+    private var coachButton: some View {
+        Group {
+            if connection.coachBusy {
+                ProgressView()
+            } else if connection.coachPresent {
+                Button("Dismiss coach", systemImage: "person.crop.circle.badge.xmark") {
+                    connection.dismissCoach()
+                }
+                .buttonStyle(.bordered)
+                .tint(.purple)
+            } else {
+                Button("Summon coach", systemImage: "sparkles") {
+                    connection.summonCoach()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+            }
+        }
+        .frame(height: 44)
     }
 
     @ViewBuilder
