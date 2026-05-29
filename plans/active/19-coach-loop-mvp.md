@@ -115,6 +115,21 @@ First end-to-end run with the physical glasses. **The hard half works; the gap i
 4. **Re-measure latency** *(task #8)* once we can hear steady-state turns.
 5. **Viewer audio** — already fixed/committed; finish the deploy story (it lives in the `viewer` Vercel project / git-integration previews, *not* a CLI deploy) when it becomes useful.
 
+### Implemented — iOS glasses audio (task #6, 2026-05-29)
+
+**Shipped** (`RoomConnection.swift`): a one-time `AudioManager.shared.sessionConfiguration` set in `init()` to a **fixed** `AudioSessionConfiguration(category: .playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .allowAirPlay], mode: .videoChat)`. Compiles clean (simulator Debug build SUCCEEDED).
+
+**Why this exact config** (verified against vendored SDK v2.14.1, not GitHub HEAD):
+- The SDK's stock dynamic config `playAndRecordSpeaker` allows **both** HFP *and* A2DP. With HFP allowed, iOS treats the glasses as an 8 kHz bidirectional headset and steals the mic. **Allowing A2DP only** keeps output on the glasses' hi-fi sink and forces input back to the built-in phone mic (A2DP has no input profile) → the hybrid path, for free.
+- `AudioManager.shared.sessionConfiguration` is the public **fixed-config** hook; it takes precedence over the SDK's dynamic logic and over `isSpeakerOutputPreferred`. A fixed config is correct here because we *always* publish a mic (plan 07) and *always* receive coach audio — no need for the dynamic playback-only↔playAndRecord switching.
+- **No subscribe/attach code needed:** remote audio auto-subscribes (default `autoSubscribe`) and the SDK auto-renders it through the audio engine on iOS (unlike video, which needs `attach`). So the inaudible-coach bug was purely the session route, not missing subscription.
+
+**Still to verify on device (inherently hardware — needs Vincent + glasses + phone, one clean pass):**
+- Does `.videoChat` mode actually route output to the A2DP glasses? Voice-processing modes *can* refuse A2DP output on some iOS versions. **Fallback if not:** drop mode to `.default` (loses hardware AEC, but WebRTC's software APM still does echo cancellation). Picked `.videoChat` first to keep hardware AEC since the glasses speaker sits near the phone mic.
+- Echo: coach plays near the user's ear, phone mic ~arm's length — confirm AEC handles it without the coach interrupting itself.
+- Shared-BT-link: does A2DP playback to the glasses degrade the camera video (the task-#7 shared-link finding)? Observe during this test.
+- A phone-speaker/earbuds fallback toggle is **not** built yet — deferred until the A2DP path is confirmed working.
+
 ### Gathered thoughts — iOS glasses audio (task #6 starting point)
 
 **Goal:** the iOS app subscribes to the agent's remote audio track (`roomio_audio`) and plays it out the **glasses over Bluetooth A2DP** (hi-fi), with the learner's mic still captured on the **phone** (hybrid path — avoids the HFP 8 kHz downgrade). Phone-speaker/earbuds as a fallback toggle.

@@ -65,7 +65,25 @@ final class RoomConnection: NSObject, ObservableObject {
     init(tokenClient: PublisherTokenClient = PublisherTokenClient()) {
         self.tokenClient = tokenClient
         super.init()
+        Self.configureAudioRouting()
         room.add(delegate: self)
+    }
+
+    // Route the coach's voice to the glasses over Bluetooth A2DP (hi-fi,
+    // output-only) while the learner's mic stays on the phone — the hybrid
+    // path the epic settled on. The SDK's stock `.playAndRecordSpeaker` allows
+    // both A2DP *and* HFP; with HFP allowed, iOS treats the glasses as an 8 kHz
+    // bidirectional headset and steals the mic. Allowing A2DP only keeps output
+    // on the glasses' hi-fi sink and forces input back to the built-in mic
+    // (A2DP has no input profile). Mode `.videoChat` retains hardware echo
+    // cancellation. Fixed config (vs. the SDK's dynamic logic) is correct here:
+    // we always publish a mic (plan 07) and always receive coach audio.
+    private static func configureAudioRouting() {
+        AudioManager.shared.sessionConfiguration = AudioSessionConfiguration(
+            category: .playAndRecord,
+            categoryOptions: [.mixWithOthers, .allowBluetoothA2DP, .allowAirPlay],
+            mode: .videoChat
+        )
     }
 
     func connect(source: Source, glasses: GlassesGateway) {
