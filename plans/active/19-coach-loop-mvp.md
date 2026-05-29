@@ -138,7 +138,16 @@ The full conversational loop runs on real hardware: **learner speaks → glasses
 - **#4 (viewer audio):** code committed (`viewer/index.html` + the `canSubscribe` grant) but **not deployed to prod and not freshly re-verified with coach audio** — closes when the branch lands (ships the viewer-audio fix + token grant together).
 - **#1, #2, #3, #6:** met (see test #2 above).
 
-**To close the plan:** (a) land the branch via merge-worktree → deploys #4 + the token fix to prod; (b) gating dispatch (auto-bill footgun) is tracked as a follow-up, not a closer. Then move this file to `plans/completed/` and update `plans/index.md`.
+**To close the plan:** (a) land the branch via merge-worktree → deploys the viewer-audio fix, the `canSubscribe` token grant, AND the new `coach-dispatch` endpoint to prod; (b) ~~gating dispatch~~ **done** — pulled into this PR as a user-facing feature (see below). Then move this file to `plans/completed/` and update `plans/index.md`.
+
+### Coach summon/dismiss + named agent (task #7, 2026-05-29)
+
+Vincent pulled the auto-dispatch footgun into this PR as a real feature: a button to **summon** the AI coach and **dismiss** it. Shipped:
+
+- **Named agent:** the worker now sets `agent_name="waza-coach"` → no longer auto-dispatched to every room, so the e2e suite / stray viewers can't wake a billed Gemini session. It joins **only when summoned**.
+- **`viewer/api/coach-dispatch`** (authed with the same `ios-publisher` envelope): `summon` → `AgentDispatchClient.createDispatch`; `dismiss` → `RoomServiceClient.removeParticipant` on the `agent-` participant (ends the job, closes the Gemini session). Unit-tested.
+- **iOS:** `CoachDispatchClient` + a single toggle button in `ContentView` (**Summon coach ⇄ Dismiss coach**) shown while connected, driven by coach presence (`agent-` identity in the room).
+- **Verified** end-to-end against real LiveKit (summon dispatched the worker → `coach ready`; dismiss → `session closed`). Only the on-device button *tap* is still unexercised.
 
 ### Implemented — iOS glasses audio (task #6, 2026-05-29) — SUPERSEDED by test #2 above (A2DP dropped; real fix was the token)
 
