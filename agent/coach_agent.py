@@ -21,9 +21,16 @@ import os
 import time
 from pathlib import Path
 
+import certifi
 from dotenv import load_dotenv
 from google.genai import types as genai_types
 from livekit import rtc
+
+# uv-managed standalone CPython ships without a system CA bundle
+# (ssl.get_default_verify_paths() is empty), so TLS to LiveKit Cloud fails with
+# CERTIFICATE_VERIFY_FAILED. Point OpenSSL at certifi's bundle. setdefault keeps
+# an explicit SSL_CERT_FILE (or a platform that already has CAs) untouched.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -47,8 +54,10 @@ logger = logging.getLogger("waza-coach")
 logger.setLevel(logging.INFO)
 
 # --- Config (env-overridable) ------------------------------------------------
-# Model id is a deliberate one-line swap: gemini-2.5-flash-native-audio-* if we
-# need the programmatic levers (plan 21), or an OpenAI Realtime model for A/B.
+# COACH_MODEL swaps among *Gemini Live* model ids on this same plugin — e.g.
+# gemini-2.5-flash-native-audio-preview-12-2025 when we need the programmatic
+# levers 3.1 lacks (plan 21). An OpenAI Realtime A/B is a larger swap (a
+# different llm plugin), not a COACH_MODEL change — see the README.
 COACH_MODEL = os.getenv("COACH_MODEL", "gemini-3.1-flash-live-preview")
 COACH_VOICE = os.getenv("COACH_VOICE", "Puck")
 # Conservative sampling to bound token cost. 3.1's TURN_INCLUDES_ALL_VIDEO

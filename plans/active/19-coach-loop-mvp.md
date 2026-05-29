@@ -64,10 +64,11 @@ The agent lives in [`agent/`](../../agent/) — a `uv`-managed Python project, s
 - **Conservative video sampling from the start.** `VoiceActivityVideoSampler(speaking_fps=1.0, silent_fps=0.3)` (the framework defaults, set explicitly + env-overridable) plus `media_resolution=MEDIA_RESOLUTION_LOW`. 3.1's `TURN_INCLUDES_ALL_VIDEO` bills every buffered frame per turn, so low fps matters more here than on 2.5.
 - **Built-in turn detection** (Gemini Live VAD) — no Silero/LiveKit turn-detector plugin in Stage 1, per the plan. Revisit if turn-taking feels wrong.
 - **Latency harness = state-transition stopwatch.** The agent times `user_state: speaking→listening` (learner stops) to `agent_state: →speaking` (coach starts) and logs `[latency] learner_turn_end -> coach_speaking = X.XXs`. Coarse but honest: it includes Gemini think+TTS and both network legs — exactly what "does it feel natural?" depends on. Satisfies done-criterion #6.
+- **TLS gotcha fixed in-code.** uv's standalone CPython ships with no system CA bundle (`ssl.get_default_verify_paths()` is empty), so the worker's TLS handshake to LiveKit Cloud failed with `CERTIFICATE_VERIFY_FAILED`. Fix: `os.environ.setdefault("SSL_CERT_FILE", certifi.where())` at startup (certifi is now an explicit dep). With it, the worker **registers against the real LiveKit Cloud project** — no shell setup needed.
 
 ### Status (2026-05-28)
 
-**Validated without hardware** (all green): deps resolve + install; `coach_agent` imports; the `AgentServer` CLI bootstraps (`console`/`dev`/`start`); `RealtimeModel` constructs with the exact 3.1 kwargs + `MediaResolution` enum; the sampler constructs. The agent is **run-ready**.
+**Validated without a Gemini key or glasses** (all green): deps resolve + install; `coach_agent` imports; the `AgentServer` CLI bootstraps (`console`/`dev`/`start`); `RealtimeModel` constructs with the exact 3.1 kwargs + `MediaResolution` enum (emitting the documented mid-session-update warning); the sampler constructs; and — the meaningful one — **`coach_agent.py dev` connects to our LiveKit Cloud and logs `registered worker`.** So the entire LiveKit leg (creds, URL, network, TLS, worker registration, plugin load) is proven end-to-end. The agent is **run-ready**.
 
 **Blocked on two things only I can't self-provision:**
 1. **`GOOGLE_API_KEY`** in the repo-root `.env` (get one at <https://aistudio.google.com/apikey>). Nothing else is needed — LiveKit creds are already there.

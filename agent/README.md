@@ -49,7 +49,7 @@ selected, then speak a question.
 
 | Var | Default | Notes |
 | --- | --- | --- |
-| `COACH_MODEL` | `gemini-3.1-flash-live-preview` | One-line swap. `gemini-2.5-flash-native-audio-preview-12-2025` for the programmatic levers (plan 21); an OpenAI Realtime model for A/B. |
+| `COACH_MODEL` | `gemini-3.1-flash-live-preview` | Swaps among **Gemini Live** ids on this plugin — e.g. `gemini-2.5-flash-native-audio-preview-12-2025` for the programmatic levers (plan 21). An OpenAI Realtime A/B is a *different plugin*, not a `COACH_MODEL` change. |
 | `COACH_VOICE` | `Puck` | [Gemini Live voices](https://ai.google.dev/gemini-api/docs/live#change-voices). |
 | `COACH_SPEAKING_FPS` | `1.0` | Frames/sec sampled while the learner speaks. |
 | `COACH_SILENT_FPS` | `0.3` | Frames/sec while silent. Keep low — 3.1 bills every buffered frame per turn. |
