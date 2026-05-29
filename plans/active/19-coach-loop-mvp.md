@@ -99,9 +99,44 @@ First end-to-end run with the physical glasses. **The hard half works; the gap i
 - **API errors seen in AI Studio** (1× 400, 2× 409) were testing artifacts: the 400 was a `TEXT`-modality probe (audio-only model → 1007), the 409s were Live-session churn from talking over the silent coach. Not defects.
 - **Auto-dispatch is a cost footgun.** The coach shares the `waza-proto` room with the e2e test suite, so *any* participant (a test publisher, a stray viewer) wakes it and opens a **billed** Gemini Live session. An idle registered worker costs ~nothing; an unintended session does. Gate it.
 
-### Follow-up work (queued 2026-05-29)
+### Revised plan after live test #1 (2026-05-29, Vincent's direction)
 
-1. **Viewer audio playback** *(quick win — do first).* Attach subscribed audio tracks in `viewer/index.html` and handle browser autoplay (click-to-enable). Lets us actually hear the coach and confirms #4 + reply quality. Needs a Vercel redeploy to reach the hosted link.
-2. **iOS coach-audio playback + glasses routing.** Render the agent's remote audio and route output to the glasses via `AVAudioSession` (A2DP out + phone-mic in, per the epic's hybrid decision). The substantive feature; needs the device + a rebuild. Delivers #5/#7.
-3. **Gate the coach's dispatch.** Give it an explicit `agent_name` + dispatch, or a dedicated room separate from the e2e tests, so it only runs when summoned — closes the auto-billing footgun.
-4. **Re-measure latency** once playback works (steady-state turn time, not first-turn cold start).
+**Priority order changed.** Build **iOS glasses audio first**, then make the coach reliable — and test reliability **through the glasses, not the browser viewer**. Rationale (Vincent):
+
+- **Viewer audio is deprioritized**, not abandoned. When you're in front of the viewer *and* speaking through the glasses, the viewer's playback creates reverb/echo — so it's not the channel he'd actually use. (The viewer fix is done + committed; we'll revisit when it's useful.)
+- **iOS work is self-contained in this worktree.** App changes build/deploy to the device locally (`devicectl`), with no Vercel involvement — so we iterate on the branch without tripping the `waza-proto` project's git-integration deploys (and without the two-project deploy mess hit during test #1).
+- **Keep Gemini 3.1 Flash Live.** Too early to drop to 2.5. Fix the reliability cause directly first; treat a 2.5 swap as a last resort, not a first move.
+
+**Ordered work:**
+
+1. **iOS coach-audio playback + glasses routing** *(do first — task #6).* The substantive feature. Delivers #5; sets up testing the coach via the glasses.
+2. **Coach response reliability** *(task #9)*, validated by hearing the coach **in the glasses** (no viewer → no reverb). Root-cause the ~30s input-track churn first; keep 3.1.
+3. **Gate the coach's dispatch** *(task #7)* — explicit `agent_name` + dispatch, or a dedicated room, so it only runs when summoned (closes the auto-billing footgun; also stops e2e test runs from waking it).
+4. **Re-measure latency** *(task #8)* once we can hear steady-state turns.
+5. **Viewer audio** — already fixed/committed; finish the deploy story (it lives in the `viewer` Vercel project / git-integration previews, *not* a CLI deploy) when it becomes useful.
+
+### Gathered thoughts — iOS glasses audio (task #6 starting point)
+
+**Goal:** the iOS app subscribes to the agent's remote audio track (`roomio_audio`) and plays it out the **glasses over Bluetooth A2DP** (hi-fi), with the learner's mic still captured on the **phone** (hybrid path — avoids the HFP 8 kHz downgrade). Phone-speaker/earbuds as a fallback toggle.
+
+**What's known (from the codebase + live test):**
+- `RoomConnection.swift` is publish-only — no remote-audio handling, and **no explicit `AVAudioSession` config** (grep found none). The mic is published at `RoomConnection.swift:77` only to keep an audio session alive for background streaming (plan 07).
+- The agent **does** publish `roomio_audio` (unmuted) to the room — confirmed via the LiveKit room API during the live test. So the source side is done.
+- On the phone the coach was inaudible: the LiveKit Swift SDK may auto-render remote audio, but with no playback-oriented session category/route it goes nowhere audible — and nothing routes it to the glasses.
+
+**Likely approach (verify against the LiveKit Swift SDK before coding):**
+- The key is the **`AVAudioSession` category + options**: for A2DP *output* while capturing the *phone* mic, the hybrid recipe is `.playAndRecord` with **`.allowBluetoothA2DP`** (NOT `.allowBluetooth`, which forces HFP and downgrades both directions to 8 kHz mono). With only `.allowBluetoothA2DP`, input stays on the phone mic and output can route to the glasses' A2DP sink.
+- Determine **who owns the session**: LiveKit Swift's `AudioManager` manages `AVAudioSession` by default. Use its configuration hook (e.g. a custom configure func / `AudioManager.shared`) rather than fighting it. Need to confirm the exact API + how it composes with plan-07's background-streaming requirements (`suspendLocalVideoTracksInBackground:false`, `UIBackgroundModes`).
+- Confirm remote-audio **auto-subscribe/auto-play** is on (default), so the only real work is the session/route + a settings toggle for output device.
+
+**Files in play:** `ios/WazaProto/WazaProto/RoomConnection.swift` (session config + ensure remote audio plays), maybe `Config.swift` (output-device toggle), and the settings UI.
+
+**Open questions to resolve offline:** exact LiveKit Swift audio-session hook; A2DP-out + phone-mic-in actually achievable in one `.playAndRecord` session; interaction with the DAT camera stream + plan-07 session; whether A2DP playback to the glasses degrades the camera video over the shared BT link (#7's shared-link finding — observe during the eventual device test).
+
+**Verification:** needs a device rebuild + the glasses (one clean pass), since this is inherently hardware. Build locally per the wireless-deploy memory; no Vercel/viewer involved.
+
+### Reliability notes for task #9 (don't lose these)
+- Test #1 transcribed + got a reply on the **first** utterance, then degraded. Logs show `ios-publisher` **re-publishing mic + glasses tracks** (repeated `track subscribed` events ~10–30 s apart), which churns the agent's Gemini input and breaks turns. Prime suspect: the glasses **adaptive-resolution ladder rebuilding the video track** (plan 07's runtime decoder-rebuild) — and the agent re-subscribing audio alongside it.
+- Likely fix direction: decouple the agent's **audio** input from **video** re-subscription so a video-track rebuild doesn't tear down the audio turn; and/or stabilise the published video. Keep 3.1.
+- Saw `received server content but no active generation` (Gemini plugin) during churn, and AI-Studio 409s = concurrent/recycled Live sessions. The 409s also came partly from my agent restarts overlapping; the dispatch gate (task #7) reduces this.
+- Repro without hardware where possible: `console` mode exercises the agent+model loop with a local mic; a synthetic re-publish could mimic the churn.
