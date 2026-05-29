@@ -95,29 +95,16 @@ struct ContentView: View {
         }
     }
 
-    /// What action the Glasses tab needs from the user before we can connect.
-    /// Single source of truth for the pre-connect gate: `glassesGate` renders
-    /// it, `showGlassesGate` checks emptiness, and `statusLabel` defers to
-    /// it. `.grantCamera` requires an active device AND a *definitive*
-    /// `.denied`. DAT answers `checkPermissionStatus` live over the glasses
-    /// link (it throws `.noDeviceWithConnection`/`.connectionError` while the
-    /// link is down, surfacing here as nil) and does not cache the grant
-    /// across launches — the grant lives in Meta AI, not our app. So nil
-    /// means "unknown right now", never "denied": gating on `!= .granted`
-    /// made the button reappear on every cold start even after a prior grant
-    /// (the link isn't up yet when the view first queries). Plan 13 dropped
-    /// this gate entirely on the assumption the SDK would self-prompt via
-    /// `session.start` — empirically false on fresh installs (DAT 0.7.0).
-    private enum GlassesGateAction {
-        case none
-        case register
-        case grantCamera
-    }
-
+    /// Pre-connect gate decision. Delegates to `GlassesGateway.gateAction` — the
+    /// pure single source of truth (incl. the `nil`-permission cold-start rule,
+    /// documented there). `glassesGate` renders it, `showGlassesGate` checks
+    /// emptiness, and `statusLabel` defers to it.
     private var glassesGateAction: GlassesGateAction {
-        if glasses.registrationState != .registered { return .register }
-        if glasses.activeDeviceID != nil, glasses.cameraPermission == .denied { return .grantCamera }
-        return .none
+        GlassesGateway.gateAction(
+            registrationState: glasses.registrationState,
+            hasActiveDevice: glasses.activeDeviceID != nil,
+            cameraPermission: glasses.cameraPermission
+        )
     }
 
     private var showGlassesGate: Bool { glassesGateAction != .none }

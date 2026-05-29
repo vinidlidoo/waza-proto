@@ -7,6 +7,15 @@ struct DeviceDescription: Identifiable {
     let summary: String
 }
 
+/// What the Glasses tab needs from the user before we can connect. The single
+/// source of truth for the pre-connect gate decision: `ContentView` renders it,
+/// `showGlassesGate` checks emptiness, and `statusLabel` defers to it.
+enum GlassesGateAction {
+    case none
+    case register
+    case grantCamera
+}
+
 @MainActor
 final class GlassesGateway: ObservableObject {
     @Published private(set) var registrationState: RegistrationState = .unavailable
@@ -120,6 +129,40 @@ final class GlassesGateway: ObservableObject {
     // can lag behind a granted "Always allow", and a missing perm surfaces clearly
     // on session.start anyway.
     var isReady: Bool {
-        registrationState == .registered && activeDeviceID != nil
+        Self.isReady(registrationState: registrationState, hasActiveDevice: activeDeviceID != nil)
+    }
+
+    // MARK: - Pure gate predicate (plan 18)
+
+    /// Pure decision for the pre-connect gate, extracted so it's exhaustively
+    /// testable on plain values (the `@Published` props are `private(set)`, so
+    /// the live instance isn't drivable from a test). `nonisolated` so the gate
+    /// truth table can run off the main actor.
+    ///
+    /// `.grantCamera` requires an active device AND a *definitive* `.denied`.
+    /// DAT answers `checkPermissionStatus` live over the glasses link (it throws
+    /// `.noDeviceWithConnection`/`.connectionError` while the link is down,
+    /// surfacing here as `nil`) and does not cache the grant across launches —
+    /// the grant lives in Meta AI, not our app. So `nil` means "unknown right
+    /// now", never "denied": gating on `!= .granted` made the button reappear
+    /// on every cold start even after a prior grant (the link isn't up yet when
+    /// the view first queries). Plan 13 dropped this gate entirely on the
+    /// assumption the SDK would self-prompt via `session.start` — empirically
+    /// false on fresh installs (DAT 0.7.0).
+    nonisolated static func gateAction(
+        registrationState: RegistrationState,
+        hasActiveDevice: Bool,
+        cameraPermission: PermissionStatus?
+    ) -> GlassesGateAction {
+        if registrationState != .registered { return .register }
+        if hasActiveDevice, cameraPermission == .denied { return .grantCamera }
+        return .none
+    }
+
+    nonisolated static func isReady(
+        registrationState: RegistrationState,
+        hasActiveDevice: Bool
+    ) -> Bool {
+        registrationState == .registered && hasActiveDevice
     }
 }
