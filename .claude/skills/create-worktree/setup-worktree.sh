@@ -71,5 +71,6 @@ echo
 echo "Done. Worktree ready at: $WT_PATH"
 echo "Next:"
 echo "  cd \"$WT_PATH\""
+echo "  just test-ios-unit      # fast compile + iOS unit check (there is no 'just build' recipe)"
 echo "  just test-detail        # all four tiers   (e2e publishes to the live room)"
 echo "  open ios/WazaProto/WazaProto.xcodeproj"
