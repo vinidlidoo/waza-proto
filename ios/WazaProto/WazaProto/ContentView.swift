@@ -27,6 +27,11 @@ struct ContentView: View {
                             .padding(8)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if case .connected = connection.status {
+                        coachButton
+                    }
+                }
 
             Picker("Source", selection: $source) {
                 ForEach(RoomConnection.Source.allCases) { src in
@@ -60,6 +65,7 @@ struct ContentView: View {
                     .font(.callout.monospaced())
                     .foregroundStyle(copyToast == nil ? Color.secondary : Color.green)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                connectButton
                 Button(action: copyViewerLink) {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
@@ -72,13 +78,6 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-            }
-
-            HStack(spacing: 12) {
-                if case .connected = connection.status {
-                    coachButton
-                }
-                actionButton
             }
         }
         .padding()
@@ -249,52 +248,67 @@ struct ContentView: View {
         }
     }
 
-    // Summon / dismiss the AI coach. Only meaningful once the room exists, so
-    // ContentView shows it only while `.connected`. The label tracks the
-    // coach's actual presence in the room (RoomConnection.coachPresent).
+    // Summon / dismiss the AI coach, overlaid in the live preview's lower-right
+    // corner. Only meaningful once the room exists, so ContentView shows it
+    // only while `.connected`. Icon-only; the color mirrors the
+    // Connect/Disconnect convention — blue prominent when off (summon), gray
+    // with a red sparkle when on (dismiss). State tracks the coach's actual
+    // presence (RoomConnection.coachPresent); coachBusy holds the spinner from
+    // tap until the room reflects the change.
     @ViewBuilder
     private var coachButton: some View {
         Group {
             if connection.coachBusy {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
+                // Same solid footprint as the off-state so it stays visible
+                // over the video — a bare ProgressView was nearly invisible.
+                Button {} label: {
+                    ProgressView()
+                        .tint(.white)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
             } else if connection.coachPresent {
-                Button("bye", systemImage: "sparkles") { connection.dismissCoach() }
-                    .buttonStyle(.bordered)
-                    .tint(.purple)
-                    .frame(maxWidth: .infinity)
+                Button { connection.dismissCoach() } label: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(.systemGray3))
             } else {
-                Button("help", systemImage: "sparkles") { connection.summonCoach() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
-                    .frame(maxWidth: .infinity)
+                Button { connection.summonCoach() } label: {
+                    Image(systemName: "sparkles")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
             }
         }
-        .frame(height: 50)
+        .padding(14)
     }
 
+    // Connect / disconnect, as a borderless icon in the status row alongside
+    // the link and debug toggles. Mirrors the bug button's fill convention:
+    // `video.fill` while connected, outline `video` while disconnected. A
+    // spinner stands in during the .connecting / .switching transitions.
     @ViewBuilder
-    private var actionButton: some View {
-        // Fixed height across all three states (Connect, ProgressView,
-        // Disconnect) so the preview area above doesn't change size as we
-        // transition through .connecting / .switching.
-        Group {
-            switch connection.status {
-            case .disconnected, .failed:
-                Button("Connect") { connection.connect(source: source, glasses: glasses) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canConnect)
-                    .frame(maxWidth: .infinity)
-            case .connecting, .switching:
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-            case .connected:
-                Button("Disconnect", role: .destructive, action: connection.disconnect)
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
+    private var connectButton: some View {
+        switch connection.status {
+        case .disconnected, .failed:
+            Button { connection.connect(source: source, glasses: glasses) } label: {
+                Image(systemName: "video")
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.borderless)
+            .disabled(!canConnect)
+        case .connecting, .switching:
+            ProgressView()
+                .controlSize(.small)
+        case .connected:
+            Button(action: connection.disconnect) {
+                Image(systemName: "video.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
         }
-        .frame(height: 50)
     }
 }
 

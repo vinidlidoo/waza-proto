@@ -183,11 +183,20 @@ final class RoomConnection: NSObject, ObservableObject {
         guard case .connected = status, !coachBusy else { return }
         coachBusy = true
         Task {
-            defer { coachBusy = false }
             do {
                 try await coachClient.dispatch(action)
+                // Stay busy until the room actually reflects the change —
+                // the coach takes ~3s to join after the HTTP call returns, and
+                // releasing the button at HTTP-return let rapid taps dispatch
+                // duplicate coaches. `refreshParticipants` clears coachBusy
+                // when coachPresent flips. The timeout is a fallback so the
+                // spinner can't wedge if the dispatch silently no-ops (e.g. no
+                // worker registered to fulfill a summon).
+                try? await Task.sleep(for: .seconds(10))
+                coachBusy = false
             } catch {
                 print("[coach] \(action.rawValue) failed: \(error)")
+                coachBusy = false
             }
         }
     }
@@ -259,7 +268,14 @@ final class RoomConnection: NSObject, ObservableObject {
     private func refreshParticipants() {
         let identities = room.remoteParticipants.values.map { $0.identity?.stringValue ?? "" }
         watcherCount = Self.watcherCount(identities: identities)
-        coachPresent = identities.contains { $0.hasPrefix("agent-") }
+        let present = identities.contains { $0.hasPrefix("agent-") }
+        // A presence transition means an in-flight summon/dismiss has landed —
+        // release the button. Guarding on the transition avoids an unrelated
+        // viewer join/leave clearing coachBusy while a summon is still pending.
+        if present != coachPresent {
+            coachPresent = present
+            coachBusy = false
+        }
     }
 
     nonisolated static func watcherCount(identities: [String]) -> Int {
