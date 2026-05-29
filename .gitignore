@@ -35,3 +35,4 @@ viewer/.vercel/
 # Python coach agent (agent/) — plan 19
 agent/.venv/
 agent/**/__pycache__/
+agent/coach.log

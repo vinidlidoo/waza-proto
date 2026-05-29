@@ -32,6 +32,17 @@ struct ContentView: View {
                         coachButton
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    if let coachError = connection.coachError {
+                        Text(coachError)
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.orange.opacity(0.9), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(.bottom, 12)
+                    }
+                }
 
             Picker("Source", selection: $source) {
                 ForEach(RoomConnection.Source.allCases) { src in

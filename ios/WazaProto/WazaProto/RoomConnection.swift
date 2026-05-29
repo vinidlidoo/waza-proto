@@ -55,6 +55,9 @@ final class RoomConnection: NSObject, ObservableObject {
     // request in flight. The button in ContentView reads both.
     @Published private(set) var coachPresent: Bool = false
     @Published private(set) var coachBusy: Bool = false
+    // Set when a summon produces no coach (almost always: no worker registered
+    // to fulfill the dispatch). Cleared on the next attempt or when one joins.
+    @Published private(set) var coachError: String?
 
     // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
     // .suspend() on any track with source=.camera (which includes our
@@ -167,6 +170,7 @@ final class RoomConnection: NSObject, ObservableObject {
             watcherCount = 0
             coachPresent = false
             coachBusy = false
+            coachError = nil
             status = .disconnected
         }
     }
@@ -182,6 +186,7 @@ final class RoomConnection: NSObject, ObservableObject {
     private func dispatchCoach(_ action: CoachDispatchClient.Action) {
         guard case .connected = status, !coachBusy else { return }
         coachBusy = true
+        coachError = nil
         Task {
             do {
                 try await coachClient.dispatch(action)
@@ -189,14 +194,20 @@ final class RoomConnection: NSObject, ObservableObject {
                 // the coach takes ~3s to join after the HTTP call returns, and
                 // releasing the button at HTTP-return let rapid taps dispatch
                 // duplicate coaches. `refreshParticipants` clears coachBusy
-                // when coachPresent flips. The timeout is a fallback so the
-                // spinner can't wedge if the dispatch silently no-ops (e.g. no
-                // worker registered to fulfill a summon).
-                try? await Task.sleep(for: .seconds(10))
-                coachBusy = false
+                // when coachPresent flips. This sleep is the fallback: if it's
+                // still busy when it ends, the dispatch was a no-op — almost
+                // always because no worker is registered to fulfill the summon.
+                try? await Task.sleep(for: .seconds(8))
+                if coachBusy {
+                    coachBusy = false
+                    if case .summon = action, !coachPresent {
+                        coachError = "Coach unavailable — the worker may be offline."
+                    }
+                }
             } catch {
                 print("[coach] \(action.rawValue) failed: \(error)")
                 coachBusy = false
+                coachError = "Couldn't reach the coach service."
             }
         }
     }
@@ -275,6 +286,7 @@ final class RoomConnection: NSObject, ObservableObject {
         if present != coachPresent {
             coachPresent = present
             coachBusy = false
+            if present { coachError = nil }
         }
     }
 
