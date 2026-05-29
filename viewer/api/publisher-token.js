@@ -42,7 +42,9 @@ export default async function handler(req, res) {
     roomJoin: true,
     room: 'waza-proto',
     canPublish: true,
-    canSubscribe: false,
+    // The publisher subscribes to exactly one remote track: the coach agent's
+    // audio (plan 19). Viewers don't publish, so this grants nothing else.
+    canSubscribe: true,
   });
 
   res.setHeader('Cache-Control', 'no-store');

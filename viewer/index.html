@@ -11,6 +11,10 @@
       background: rgba(0,0,0,0.6); border-radius: 4px; }
     #status.connected { background: rgba(0,128,0,0.7); }
     #status.error { background: rgba(180,0,0,0.7); }
+    #enable-audio { position: fixed; top: 12px; right: 12px; display: none;
+      padding: 6px 10px; border: 0; border-radius: 4px; cursor: pointer;
+      background: rgba(0,128,0,0.85); color: #fff;
+      font: 14px -apple-system, system-ui, sans-serif; }
     #debug-stats { position: fixed; right: 12px; bottom: 12px; display: none;
       min-width: 260px; max-width: 360px; padding: 8px 10px; line-height: 1.35;
       background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.15);
@@ -32,6 +36,7 @@
 </head>
 <body>
   <div id="status">starting…</div>
+  <button id="enable-audio">🔊 Tap to enable coach audio</button>
   <div id="debug-stats"></div>
   <div id="video-slot"></div>
 
@@ -42,6 +47,7 @@
     const statusEl = document.getElementById('status');
     const slotEl = document.getElementById('video-slot');
     const debugEl = document.getElementById('debug-stats');
+    const enableAudioBtn = document.getElementById('enable-audio');
     const PROFILE_TOPIC = 'waza.profile';
     const PROFILE_STAGE = 1;
     const FREEZE_GAP_MS = 150;
@@ -57,6 +63,17 @@
     let freezeMaxGapMs = 0;
     let lastRenderCallbackMs;
     let activeProfile;
+    const audioEls = new Set();
+
+    // Play a remote audio element (the coach's voice). Browsers block unmuted
+    // autoplay without a user gesture, so on rejection we reveal a button that
+    // retries every pending element from inside a click handler.
+    function playAudio(el) {
+      el.play().then(() => {
+        if ([...audioEls].every((a) => !a.paused)) enableAudioBtn.style.display = 'none';
+      }).catch(() => { enableAudioBtn.style.display = 'block'; });
+    }
+    enableAudioBtn.addEventListener('click', () => audioEls.forEach(playAudio));
 
     function setStatus(text, cls = '') {
       statusEl.textContent = text;
@@ -307,6 +324,16 @@
     }
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      if (track.kind === Track.Kind.Audio) {
+        // The coach (agent) voice. Attach an <audio> and play it; no <video>
+        // slot involved, and we never mute it (that's the whole point).
+        const el = track.attach();
+        el.autoplay = true;
+        audioEls.add(el);
+        document.body.appendChild(el);
+        playAudio(el);
+        return;
+      }
       if (track.kind !== Track.Kind.Video) return;
       const el = track.attach();
       currentTrack = track;
@@ -322,7 +349,8 @@
     });
 
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
-      track.detach().forEach((el) => el.remove());
+      track.detach().forEach((el) => { el.remove(); audioEls.delete(el); });
+      if (audioEls.size === 0) enableAudioBtn.style.display = 'none';
       if (track === currentTrack) {
         currentTrack = undefined;
         currentVideo = undefined;

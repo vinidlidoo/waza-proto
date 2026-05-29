@@ -50,6 +50,11 @@ final class RoomConnection: NSObject, ObservableObject {
     @Published private(set) var localVideoTrack: VideoTrack?
     @Published private(set) var watcherCount: Int = 0
     @Published private(set) var profileRunID: String?
+    // The AI coach (agent_name=waza-coach) is an opt-in participant: present
+    // reflects whether it's currently in the room; busy guards a dispatch
+    // request in flight. The button in ContentView reads both.
+    @Published private(set) var coachPresent: Bool = false
+    @Published private(set) var coachBusy: Bool = false
 
     // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
     // .suspend() on any track with source=.camera (which includes our
@@ -58,6 +63,7 @@ final class RoomConnection: NSObject, ObservableObject {
     let room = Room(roomOptions: RoomOptions(suspendLocalVideoTracksInBackground: false))
     private var publisher: VideoPublisher?
     private let tokenClient: PublisherTokenClient
+    private let coachClient = CoachDispatchClient()
     private let profiler = VideoQualityProfiler()
     private var profileStopTask: Task<Void, Never>?
     private var profileRunCounts: [Source: Int] = [:]
@@ -66,6 +72,31 @@ final class RoomConnection: NSObject, ObservableObject {
         self.tokenClient = tokenClient
         super.init()
         room.add(delegate: self)
+    }
+
+    // The coach's voice reaches the glasses over the platform Bluetooth route.
+    // In practice iOS picks HFP (the glasses expose it for their mic too), which
+    // is 8 kHz but perfectly intelligible for speech and uses the glasses' own
+    // well-placed mic. We deliberately do NOT force A2DP: LiveKit's default
+    // engine observer hardcodes `.playAndRecordSpeaker` and ignores
+    // `AudioManager.shared.sessionConfiguration`, so the property route is a
+    // no-op anyway — switching to A2DP (hi-fi, output-only) would require a
+    // custom AudioEngineObserver and would move capture to the phone mic. Not
+    // worth it unless we ever need music-grade coach audio.
+
+    // Diagnostic: where is iOS actually sending output? Printed to the
+    // devicectl --console stream. Tells coach-audio-inaudible apart into its
+    // two cases: wrong route (audio reaches iOS, plays out earpiece/speaker
+    // instead of the glasses) vs. no playout at all.
+    static func logAudioRoute(_ reason: String) {
+        let s = AVAudioSession.sharedInstance()
+        let outs = s.currentRoute.outputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ", ")
+        let ins = s.currentRoute.inputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ", ")
+        print("[audio-route] (\(reason)) category=\(s.category.rawValue) "
+            + "mode=\(s.mode.rawValue) options=\(s.categoryOptions.rawValue) "
+            + "outputs=[\(outs)] inputs=[\(ins)]")
     }
 
     func connect(source: Source, glasses: GlassesGateway) {
@@ -87,6 +118,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 await localVideoTrack?.set(reportStatistics: true)
                 profiler.attach(to: localVideoTrack)
                 status = .connected
+                Self.logAudioRoute("connected")
             } catch {
                 status = .failed(Self.failureMessage(for: error))
                 await publisher.unpublish(from: room)
@@ -133,7 +165,30 @@ final class RoomConnection: NSObject, ObservableObject {
             localVideoTrack = nil
             profiler.attach(to: nil)
             watcherCount = 0
+            coachPresent = false
+            coachBusy = false
             status = .disconnected
+        }
+    }
+
+    /// Summon the AI coach into the room (explicit dispatch — the worker isn't
+    /// auto-dispatched). `coachPresent` flips once the agent participant joins.
+    func summonCoach() { dispatchCoach(.summon) }
+
+    /// Dismiss the AI coach — removes the agent participant, ending its billed
+    /// Gemini session. `coachPresent` flips once it disconnects.
+    func dismissCoach() { dispatchCoach(.dismiss) }
+
+    private func dispatchCoach(_ action: CoachDispatchClient.Action) {
+        guard case .connected = status, !coachBusy else { return }
+        coachBusy = true
+        Task {
+            defer { coachBusy = false }
+            do {
+                try await coachClient.dispatch(action)
+            } catch {
+                print("[coach] \(action.rawValue) failed: \(error)")
+            }
         }
     }
 
@@ -198,6 +253,15 @@ final class RoomConnection: NSObject, ObservableObject {
         })
     }
 
+    // Recompute room-derived state on any participant change. The coach joins
+    // with an `agent-` identity prefix (LiveKit Agents convention); viewers are
+    // `viewer-…`. So one scan updates both counts.
+    private func refreshParticipants() {
+        let identities = room.remoteParticipants.values.map { $0.identity?.stringValue ?? "" }
+        watcherCount = Self.watcherCount(identities: identities)
+        coachPresent = identities.contains { $0.hasPrefix("agent-") }
+    }
+
     nonisolated static func watcherCount(identities: [String]) -> Int {
         identities.filter { $0.hasPrefix("viewer-") }.count
     }
@@ -240,10 +304,24 @@ final class RoomConnection: NSObject, ObservableObject {
 
 extension RoomConnection: RoomDelegate {
     nonisolated func room(_ room: Room, participantDidConnect participant: RemoteParticipant) {
-        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+        Task { @MainActor in self.refreshParticipants() }
     }
 
     nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
-        Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+        Task { @MainActor in self.refreshParticipants() }
+    }
+
+    // Diagnostic for the coach-audio path: confirm the agent's audio track is
+    // actually subscribed, and dump the route once LiveKit's AudioManager has
+    // had a moment to (re)configure the session for playout.
+    nonisolated func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+        let kind = publication.kind == .audio ? "audio" : "video"
+        print("[audio-route] subscribed \(kind) track '\(publication.name)' "
+            + "from \(participant.identity?.stringValue ?? "?")")
+        guard publication.kind == .audio else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            Self.logAudioRoute("after remote audio subscribed")
+        }
     }
 }
