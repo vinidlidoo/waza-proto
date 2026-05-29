@@ -169,5 +169,5 @@ ios/WazaProto/WazaProto/
 
 ## Tech debt opened
 
-- [Glasses stream: bitrate / codec headroom](../tech-debt-tracker.md#glasses-stream-bitrate--codec-headroom) — `.raw` codec over BT is the bottleneck; the fix is the `.h264` path into a LiveKit encoded-track surface.
-- [iOS publisher: SwiftProtobuf duplicate class warnings](../tech-debt-tracker.md#ios-publisher-swiftprotobuf-duplicate-class-warnings) — MWDATCore statically links SwiftProtobuf which collides with LiveKit's SPM-resolved copy. Benign but spammy at launch; vendor-side fix.
+- [Glasses stream: bitrate / codec headroom](../completed/17-encoded-freeze-recovery.md) — `.raw` codec over BT was the bottleneck; the fix was the H.265 path into a LiveKit encoded-track surface. Lineage tracked through plans 15–17; the re-encode-vs-pass-through trade-off is settled there (re-encode shipped as the default).
+- [iOS publisher: SwiftProtobuf duplicate class warnings](../tech-debt/ios-publisher-swiftprotobuf-duplicate-warnings.md) — MWDATCore statically links SwiftProtobuf which collides with LiveKit's SPM-resolved copy. Benign but spammy at launch; vendor-side fix.

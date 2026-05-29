@@ -10,7 +10,7 @@ The viewer `<video>` element occupies a fixed 9:16 slot. On desktop the box is 5
 
 Plan 12 closed the streaming-smoothness loop (smoothing buffer, depth=2 winner). The remaining viewer-side complaints are about *visual* quality, not motion: (a) the element jumps size when DAT changes resolution, (b) the picture looks grainy at 504×896. This plan addresses (a) only — pure CSS, no pipeline change, no added latency. (b) is a separate question once the layout is stable; the leading hypothesis is the LiveKit encoder's 0.78 Mbps bitrate being tight for natural-scene video, tracked separately.
 
-The reason 504×896 is the right native target rather than 720×1280: in the matched-regime data from plan 12 (`features/glasses-stream-buffer-sweep.md`), DAT spent the entire run at 504×896. The 720×1280 promotion only ever surfaced once during a contaminated sweep and isn't the typical state. Sizing the box to 720 would mean upscaling almost all real frames; sizing to 504 means downscaling on the rare promotion and 1:1 the rest of the time.
+The reason 504×896 is the right native target rather than 720×1280: in the matched-regime data from plan 12 (`docs/glasses-stream-buffer-sweep.md`), DAT spent the entire run at 504×896. The 720×1280 promotion only ever surfaced once during a contaminated sweep and isn't the typical state. Sizing the box to 720 would mean upscaling almost all real frames; sizing to 504 means downscaling on the rare promotion and 1:1 the rest of the time.
 
 ## Direction
 
@@ -57,7 +57,7 @@ plans/index.md
 
 ## Key decisions (upfront)
 
-- **Box sized to 504×896 native, not 720×1280.** Per plan 12 / `features/glasses-stream-buffer-sweep.md`, DAT effectively lives at 504×896; the promotion is rare and brief. Sizing to the common case keeps the typical render 1:1 with no scaling at all.
+- **Box sized to 504×896 native, not 720×1280.** Per plan 12 / `docs/glasses-stream-buffer-sweep.md`, DAT effectively lives at 504×896; the promotion is rare and brief. Sizing to the common case keeps the typical render 1:1 with no scaling at all.
 - **CSS-only.** No JS to read `videoWidth`/`videoHeight` and resize on the fly — `aspect-ratio` + fixed width is enough, and avoids a layout flicker on every resolution swap.
 - **`aspect-ratio: 9/16`, not `504/896`.** Same ratio, more legible. Both DAT rungs (504×896 and 720×1280) are 9:16.
 - **`object-fit: contain` over `cover`.** Both DAT rungs are 9:16 so neither would actually crop or letterbox today, but `contain` is the safer default if a future rung changes aspect.
