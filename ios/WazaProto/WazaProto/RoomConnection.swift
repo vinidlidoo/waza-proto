@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import LiveKit
 import SwiftUI
@@ -14,12 +15,14 @@ protocol VideoPublisher: AnyObject {
 @MainActor
 final class RoomConnection: NSObject, ObservableObject {
     enum Source: String, CaseIterable, Identifiable {
-        case frontCamera = "Front camera"
+        case frontCamera = "Front"
+        case rearCamera = "Rear"
         case glasses = "Glasses"
         var id: String { rawValue }
         var profileID: String {
             switch self {
             case .frontCamera: return "frontCamera"
+            case .rearCamera:  return "rearCamera"
             case .glasses:     return "glasses"
             }
         }
@@ -174,7 +177,9 @@ final class RoomConnection: NSObject, ObservableObject {
     private func makePublisher(source: Source, glasses: GlassesGateway) -> VideoPublisher {
         switch source {
         case .frontCamera:
-            return FrontCameraSource()
+            return CameraSource(position: .front)
+        case .rearCamera:
+            return CameraSource(position: .back)
         case .glasses:
             return GlassesSource(
                 wearables: glasses.wearables,

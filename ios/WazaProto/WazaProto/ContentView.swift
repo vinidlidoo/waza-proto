@@ -131,8 +131,8 @@ struct ContentView: View {
 
     private func canConnect(for source: RoomConnection.Source) -> Bool {
         switch source {
-        case .frontCamera: return true
-        case .glasses:     return glasses.isReady
+        case .frontCamera, .rearCamera: return true
+        case .glasses:                  return glasses.isReady
         }
     }
 
