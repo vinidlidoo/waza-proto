@@ -7,15 +7,27 @@ import Foundation
 /// the HMAC inputs match without a base64-decode step.
 enum InviteToken {
     static func mint(ttl: TimeInterval = 3 * 60 * 60) -> String {
-        let now = Int(Date().timeIntervalSince1970)
+        buildEnvelope(secret: Secrets.inviteSigningSecret, ttl: ttl)
+    }
+
+    /// Pure builder. Exposed as `static` with injectable `secret`/`ttl`/`now`
+    /// so tests can verify the envelope shape and signature deterministically
+    /// without generated `Secrets`. Mirrors `PublisherTokenClient.buildEnvelope`.
+    static func buildEnvelope(
+        secret: String,
+        ttl: TimeInterval = 3 * 60 * 60,
+        now: Date = Date()
+    ) -> String {
+        let iat = Int(now.timeIntervalSince1970)
+        let exp = iat + Int(ttl)
         let header = #"{"alg":"HS256","typ":"JWT"}"#
-        let payload = #"{"iat":\#(now),"exp":\#(now + Int(ttl))}"#
+        let payload = #"{"iat":\#(iat),"exp":\#(exp)}"#
 
         let h64 = base64URL(Data(header.utf8))
         let p64 = base64URL(Data(payload.utf8))
         let signingInput = "\(h64).\(p64)"
 
-        let key = SymmetricKey(data: Data(Secrets.inviteSigningSecret.utf8))
+        let key = SymmetricKey(data: Data(secret.utf8))
         let signature = HMAC<SHA256>.authenticationCode(
             for: Data(signingInput.utf8),
             using: key

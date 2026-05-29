@@ -69,7 +69,7 @@ test-detail:
         | sed -E 's|^[[:space:]]*([✓✘])[[:space:]]+[0-9]+[[:space:]]+\[[^]]+\][[:space:]]+›[[:space:]]+[^›]+[[:space:]]+›[[:space:]]+[^›]+[[:space:]]+›[[:space:]]+(.+)[[:space:]]+\(([^)]+)\)$|  \1 \2  (\3)|'
 
     echo
-    echo "ios-unit (XCTest) — Secrets shape, RoomConnection.Status equality+labels, watcher filter, MDK smoke"
+    echo "ios-unit (XCTest) — Secrets shape, RoomConnection.Status labels, watcher filter, profiler IDs, smoothing-buffer contract, invite + publisher mint, glasses gate truth table, MDK device + permission-gate wiring"
     grep -E "^Test Case .* (passed|failed) " "$LOG_DIR/ios-unit.log" \
         | sed -E "s/^Test Case '-\[[^.]+\.([^ ]+) ([^]]+)\]' (passed|failed) \(([^ ]+) seconds\)\..*/\1|\2|\3|\4/" \
         | awk -F'|' '

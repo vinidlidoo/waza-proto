@@ -3,21 +3,10 @@ import XCTest
 
 final class RoomConnectionStatusTests: XCTestCase {
 
-    func testEqualityForCasesWithoutAssociatedValues() {
-        XCTAssertEqual(RoomConnection.Status.disconnected, .disconnected)
-        XCTAssertEqual(RoomConnection.Status.connecting, .connecting)
-        XCTAssertEqual(RoomConnection.Status.connected, .connected)
-        XCTAssertEqual(RoomConnection.Status.switching, .switching)
-        XCTAssertNotEqual(RoomConnection.Status.disconnected, .connecting)
-        XCTAssertNotEqual(RoomConnection.Status.connected, .switching)
-    }
-
-    func testEqualityRespectsFailedAssociatedValue() {
-        XCTAssertEqual(RoomConnection.Status.failed("oops"), .failed("oops"))
-        XCTAssertNotEqual(RoomConnection.Status.failed("a"), .failed("b"))
-        XCTAssertNotEqual(RoomConnection.Status.failed(""), .disconnected)
-    }
-
+    // The two `Status` equality tests that lived here were pruned in plan 18:
+    // `Status`'s `Equatable` is compiler-synthesized (no custom `==`), so they
+    // tested Swift, not our code. The label strings below ARE a real UI/viewer
+    // contract, so this test stays.
     func testLabelsMatchUIContract() {
         XCTAssertEqual(RoomConnection.Status.disconnected.label, "Disconnected")
         XCTAssertEqual(RoomConnection.Status.connecting.label, "Connecting…")
