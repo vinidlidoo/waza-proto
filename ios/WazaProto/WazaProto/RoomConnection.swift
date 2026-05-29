@@ -85,7 +85,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 profiler.attach(to: localVideoTrack)
                 status = .connected
             } catch {
-                status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
+                status = .failed(Self.failureMessage(for: error))
                 await publisher.unpublish(from: room)
                 await room.disconnect()
                 self.publisher = nil
@@ -113,7 +113,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 profiler.attach(to: localVideoTrack)
                 status = .connected
             } catch {
-                status = .failed("\(type(of: error)).\(error) — \(error.localizedDescription)")
+                status = .failed(Self.failureMessage(for: error))
                 await newPublisher.unpublish(from: room)
                 await room.disconnect()
                 publisher = nil
@@ -159,6 +159,16 @@ final class RoomConnection: NSObject, ObservableObject {
         profileRunID = nil
         guard let data = profiler.stop(incomplete: incomplete) else { return }
         try? await publishProfileMessage(data)
+    }
+
+    // Prefer an error's user-actionable text (GlassesSourceError and
+    // DeviceSessionError are LocalizedError) over a type-tagged debug string.
+    // The raw error is still printed to the console for diagnostics.
+    private static func failureMessage(for error: Error) -> String {
+        if let described = (error as? LocalizedError)?.errorDescription, !described.isEmpty {
+            return described
+        }
+        return "\(type(of: error)).\(error) — \(error.localizedDescription)"
     }
 
     private func makePublisher(source: Source, glasses: GlassesGateway) -> VideoPublisher {

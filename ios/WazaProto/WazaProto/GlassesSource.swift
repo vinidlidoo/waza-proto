@@ -323,30 +323,71 @@ final class GlassesSource: VideoPublisher {
     ) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
+                for await error in errorStream {
+                    print("[glasses] session error → \(error)")
+                    throw GlassesSourceError.sessionRefusedByDevice(reason: Self.refusalReason(error))
+                }
+            }
+            group.addTask {
                 for await state in stateStream {
                     print("[glasses] session state → \(state)")
                     if state == .started { return }
                     if state == .stopped {
+                        // The device usually delivers the real DeviceSessionError
+                        // a beat *after* the .stopped transition. Give the error
+                        // stream a short grace window to win the race, so we
+                        // surface the actual reason ("Session ended by device")
+                        // with recovery advice instead of this bare fallback.
+                        try? await Task.sleep(for: .milliseconds(300))
                         throw GlassesSourceError.sessionStoppedBeforeStart
                     }
-                }
-            }
-            group.addTask {
-                for await error in errorStream {
-                    print("[glasses] session error → \(error)")
-                    throw error
                 }
             }
             _ = try await group.next()
             group.cancelAll()
         }
     }
+
+    // Extract the device's own reason string; `.unexpectedError` carries the
+    // human text we saw in logs ("Session ended by device", "Device unavailable"),
+    // and every other case is a LocalizedError with a usable description.
+    private nonisolated static func refusalReason(_ error: DeviceSessionError) -> String {
+        if case let .unexpectedError(description) = error {
+            return description
+        }
+        return error.localizedDescription
+    }
 }
 
-enum GlassesSourceError: Error {
+enum GlassesSourceError: Error, LocalizedError {
     case streamCreationFailed
     case sessionStoppedBeforeStart
     case localNetworkDenied
+    case sessionRefusedByDevice(reason: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .streamCreationFailed:
+            return "Couldn't create the glasses camera stream. Tap Connect to try again."
+        case .localNetworkDenied:
+            return "Local Network access is off. Enable it for Waza Proto in Settings, then try again."
+        case .sessionStoppedBeforeStart:
+            return Self.refusalAdvice(reason: nil)
+        case .sessionRefusedByDevice(let reason):
+            return Self.refusalAdvice(reason: reason)
+        }
+    }
+
+    // The glasses intermittently refuse a freshly-started camera session
+    // (DeviceSessionError "Session ended by device" / "Device unavailable") —
+    // a device-side state, reproduced identically on `main`, that the SDK never
+    // explains (DeviceSessionState carries no reason). The reliable recovery is
+    // a doff/don cycle, which resets the glasses' wear/capture-readiness state,
+    // so that's the action we surface rather than a bare error code.
+    private static func refusalAdvice(reason: String?) -> String {
+        let detail = reason.map { " (\($0))" } ?? ""
+        return "The glasses ended the camera session\(detail). Take them off, wait for the chime, and put them back on — then tap Connect."
+    }
 }
 
 // MARK: - Smoothing buffer (plan 12)

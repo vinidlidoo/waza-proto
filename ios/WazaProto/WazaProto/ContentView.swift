@@ -98,13 +98,16 @@ struct ContentView: View {
     /// What action the Glasses tab needs from the user before we can connect.
     /// Single source of truth for the pre-connect gate: `glassesGate` renders
     /// it, `showGlassesGate` checks emptiness, and `statusLabel` defers to
-    /// it. The `activeDeviceID != nil` guard on `.grantCamera` is the key —
-    /// it ensures we only paint the grant button when glasses are actually
-    /// online, so a nil reading of `cameraPermission` reflects "never asked"
-    /// rather than "BT link is momentarily down" (which would push the user
-    /// toward the wrong fix). Plan 13 dropped this gate on the assumption
-    /// that the Meta SDK would surface its own prompt via `session.start` —
-    /// empirically false on fresh installs (DAT 0.7.0).
+    /// it. `.grantCamera` requires an active device AND a *definitive*
+    /// `.denied`. DAT answers `checkPermissionStatus` live over the glasses
+    /// link (it throws `.noDeviceWithConnection`/`.connectionError` while the
+    /// link is down, surfacing here as nil) and does not cache the grant
+    /// across launches — the grant lives in Meta AI, not our app. So nil
+    /// means "unknown right now", never "denied": gating on `!= .granted`
+    /// made the button reappear on every cold start even after a prior grant
+    /// (the link isn't up yet when the view first queries). Plan 13 dropped
+    /// this gate entirely on the assumption the SDK would self-prompt via
+    /// `session.start` — empirically false on fresh installs (DAT 0.7.0).
     private enum GlassesGateAction {
         case none
         case register
@@ -113,7 +116,7 @@ struct ContentView: View {
 
     private var glassesGateAction: GlassesGateAction {
         if glasses.registrationState != .registered { return .register }
-        if glasses.activeDeviceID != nil, glasses.cameraPermission != .granted { return .grantCamera }
+        if glasses.activeDeviceID != nil, glasses.cameraPermission == .denied { return .grantCamera }
         return .none
     }
 

@@ -66,7 +66,7 @@ With [`just`](https://github.com/casey/just) installed (`brew install just`), `j
 
 ## Profiling
 
-The glasses feed jitters and stutters where the iPhone front camera doesn't. To measure (rather than guess) where the divergence lives, the project ships a paired-run profiler that captures one second of stats per side per window across the LiveKit boundary and inside `GlassesSource`. Full design + findings: [plan 11](plans/completed/11-video-quality-profiling.md). Headline writeup: [jitter root-cause analysis](plans/features/glasses-stream-jitter-analysis.md). Fix shipped: [plan 12 — glasses smoothing buffer](plans/completed/12-glasses-smoothing-buffer.md). Sweep write-up: [features/glasses-stream-buffer-sweep.md](plans/features/glasses-stream-buffer-sweep.md).
+The glasses feed jitters and stutters where the iPhone front camera doesn't. To measure (rather than guess) where the divergence lives, the project ships a paired-run profiler that captures one second of stats per side per window across the LiveKit boundary and inside `GlassesSource`. Full design + findings: [plan 11](plans/completed/11-video-quality-profiling.md). Headline writeup: [jitter root-cause analysis](plans/docs/glasses-stream-jitter-analysis.md). Fix shipped: [plan 12 — glasses smoothing buffer](plans/completed/12-glasses-smoothing-buffer.md). Sweep write-up: [docs/glasses-stream-buffer-sweep.md](plans/docs/glasses-stream-buffer-sweep.md).
 
 Run a paired profile (3-min front-camera + 3-min glasses, back-to-back, same room/network):
 
