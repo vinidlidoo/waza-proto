@@ -131,6 +131,15 @@ The full conversational loop runs on real hardware: **learner speaks → glasses
 3. **Gate coach dispatch** (task #7) — still open; auto-dispatch bills a Gemini session for any room participant.
 4. **Ship the `canSubscribe` token fix to production** when ready (currently local-dev only).
 
+**Done-criteria closeout (2026-05-29):**
+
+- **#7 shared-BT-link finding — RECORDED: no perceptible video degradation** while the coach speaks over HFP (Vincent, test #2). The shared BT link carries glasses video + HFP coach audio + HFP learner mic without a visible hit. This is the answer the criterion was waiting on — the HFP audio path is BT-link-safe.
+- **#5 met with a deviation:** coach audio is audible through the glasses, but over **HFP (8 kHz), not A2DP**, and there is **no speaker/earbud toggle**. Rationale: HFP was clear for speech, uses the glasses' own well-placed mic, is lighter on the shared BT link, and (per #7) doesn't degrade video — while A2DP would've needed a custom `AudioEngineObserver` and moved capture to the phone mic. The A2DP + toggle scope is dropped, not deferred; revisit only if music-grade coach audio is ever wanted.
+- **#4 (viewer audio):** code committed (`viewer/index.html` + the `canSubscribe` grant) but **not deployed to prod and not freshly re-verified with coach audio** — closes when the branch lands (ships the viewer-audio fix + token grant together).
+- **#1, #2, #3, #6:** met (see test #2 above).
+
+**To close the plan:** (a) land the branch via merge-worktree → deploys #4 + the token fix to prod; (b) gating dispatch (auto-bill footgun) is tracked as a follow-up, not a closer. Then move this file to `plans/completed/` and update `plans/index.md`.
+
 ### Implemented — iOS glasses audio (task #6, 2026-05-29) — SUPERSEDED by test #2 above (A2DP dropped; real fix was the token)
 
 **Shipped** (`RoomConnection.swift`): a one-time `AudioManager.shared.sessionConfiguration` set in `init()` to a **fixed** `AudioSessionConfiguration(category: .playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .allowAirPlay], mode: .videoChat)`. Compiles clean (simulator Debug build SUCCEEDED).
