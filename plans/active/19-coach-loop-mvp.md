@@ -71,7 +71,37 @@ The agent lives in [`agent/`](../../agent/) — a `uv`-managed Python project, s
 **Validated without a Gemini key or glasses** (all green): deps resolve + install; `coach_agent` imports; the `AgentServer` CLI bootstraps (`console`/`dev`/`start`); `RealtimeModel` constructs with the exact 3.1 kwargs + `MediaResolution` enum (emitting the documented mid-session-update warning); the sampler constructs; and — the meaningful one — **`coach_agent.py dev` connects to our LiveKit Cloud and logs `registered worker`.** So the entire LiveKit leg (creds, URL, network, TLS, worker registration, plugin load) is proven end-to-end. The agent is **run-ready**.
 
 **Blocked on two things only I can't self-provision:**
+
 1. **`GOOGLE_API_KEY`** in the repo-root `.env` (get one at <https://aistudio.google.com/apikey>). Nothing else is needed — LiveKit creds are already there.
 2. **Glasses publishing video** — needs the iPhone app running with the glasses source selected.
 
 Once both are in place: `just coach`, don the glasses, speak a question. Done-criteria 1–3 + 6 are then directly observable from the logs. Criteria **4, 5, 7 (audio routing through the glasses A2DP + browser, and the shared-BT-link finding)** are inherently hardware-in-the-loop and untouched by this code drop — they're the live-test agenda, and the audio-out-to-glasses path is an iOS-app concern (`AVAudioSession` routing) not an agent concern.
+
+### Live test #1 (2026-05-29, glasses + iPhone + browser)
+
+First end-to-end run with the physical glasses. **The hard half works; the gap is audio playback, and it's now fully diagnosed.**
+
+**Proven against real hardware:**
+
+- ✅ Agent auto-dispatched to `waza-proto`, subscribed to the glasses track **by name** (`video track subscribed: name='glasses-camera'`, no wrong-track warning) — done-criterion #1.
+- ✅ Gemini Live connected (`coach ready`), model received frames — #2.
+- ✅ Learner mic reached the agent and was transcribed (`learner asked: 'Hello.'`) — half of #3.
+- ✅ The coach generated a reply **and published its voice to the room** — confirmed via the LiveKit room API: participant `agent-…` (kind=AGENT) publishing an unmuted audio track `roomio_audio`.
+
+**The gap — no client *plays* the coach audio (criteria #3 reply / #4 / #5):** the agent's voice is in the room; neither client renders it, because until the coach existed this was a *one-way video* system (the phone's mic track was published only to keep iOS's `AVAudioSession` alive — nobody ever listened). Root-caused on both sides:
+
+- **Browser viewer:** `viewer/index.html` `RoomEvent.TrackSubscribed` handler early-returns on any non-video track (`if (track.kind !== Track.Kind.Video) return;`) — it never attaches audio. Definitive, small fix.
+- **iOS app:** no remote-audio handling at all in `RoomConnection.swift` (publish-only) and no explicit `AVAudioSession` output routing. The Swift SDK may auto-render remote audio, but with no output routing it's inaudible — and getting it to the glasses over **A2DP** is the real work.
+
+**Other observations:**
+
+- **Latency is not yet trustworthy.** Readings were 11.45 s then 66.5 s — but contaminated: with no audible reply the learner kept talking, restarting the coach's turn. Re-measure once playback works. (First-turn 11 s likely includes session/model cold-start; watch whether steady-state turns are acceptable.)
+- **API errors seen in AI Studio** (1× 400, 2× 409) were testing artifacts: the 400 was a `TEXT`-modality probe (audio-only model → 1007), the 409s were Live-session churn from talking over the silent coach. Not defects.
+- **Auto-dispatch is a cost footgun.** The coach shares the `waza-proto` room with the e2e test suite, so *any* participant (a test publisher, a stray viewer) wakes it and opens a **billed** Gemini Live session. An idle registered worker costs ~nothing; an unintended session does. Gate it.
+
+### Follow-up work (queued 2026-05-29)
+
+1. **Viewer audio playback** *(quick win — do first).* Attach subscribed audio tracks in `viewer/index.html` and handle browser autoplay (click-to-enable). Lets us actually hear the coach and confirms #4 + reply quality. Needs a Vercel redeploy to reach the hosted link.
+2. **iOS coach-audio playback + glasses routing.** Render the agent's remote audio and route output to the glasses via `AVAudioSession` (A2DP out + phone-mic in, per the epic's hybrid decision). The substantive feature; needs the device + a rebuild. Delivers #5/#7.
+3. **Gate the coach's dispatch.** Give it an explicit `agent_name` + dispatch, or a dedicated room separate from the e2e tests, so it only runs when summoned — closes the auto-billing footgun.
+4. **Re-measure latency** once playback works (steady-state turn time, not first-turn cold start).
