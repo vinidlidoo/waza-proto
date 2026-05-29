@@ -54,6 +54,14 @@
 		<string>_bonjour._tcp</string>
 		<string>_wazaproto-preflight._tcp</string>
 	</array>
+	<!-- Permits cleartext HTTP only to localhost / *.local / link-local, so a
+	     DEBUG build with WAZA_VIEWER_HOST can reach a `vercel dev` (simulator via
+	     localhost, device via the Mac's .local host). Prod HTTPS stays enforced. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>MWDAT</key>
 	<dict>
 		<key>AppLinkURLScheme</key>

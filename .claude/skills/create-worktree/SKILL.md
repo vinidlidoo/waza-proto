@@ -31,6 +31,25 @@ Default path: `<parent>/waza-proto-<branch>`. Idempotent — re-run to re-provis
 - **iOS tests use default signing** — `just test-detail` / `xcodebuild test` work as-is. Add `CODE_SIGN_IDENTITY="-"` **only** if you hit the `Call configure() before … Wearables!` bootstrap fatal, and **never** pass `CODE_SIGNING_ALLOWED=NO` (that's what triggers it — meta-wearables-dat-ios#197).
 - **Viewer `.env`/`.env.local` are only for `vercel dev`** — the test tiers load the *root* `.env`. Set up anyway; harmless.
 
+## Testing viewer changes from a worktree
+
+The app's "Copy viewer link" page **and** its own `/api/*` fetches default to prod (`Config.swift`), so a worktree's viewer/serverless edits aren't exercised. A **DEBUG** build overrides both via `WAZA_VIEWER_HOST` → point it at a local `vercel dev`:
+
+```bash
+cd "$WT_PATH/viewer" && vercel dev --listen 0.0.0.0:3000   # page + /api/* on :3000
+```
+
+- **Simulator** (no glasses): Edit Scheme → Run → Environment Variables → `WAZA_VIEWER_HOST` = `http://localhost:3000`. The sim reaches the Mac's localhost; open the copied link in a Mac browser.
+- **Device** (with glasses): launch with the var set to the Mac's `.local` host — a raw `192.168.x.x` is *not* ATS-exempt, but `.local` is:
+
+  ```bash
+  xcrun devicectl device process launch --device <udid> com.vincent.WazaProto \
+    --environment-variables "{\"WAZA_VIEWER_HOST\":\"http://$(scutil --get LocalHostName).local:3000\"}"
+  ```
+
+- ATS allows cleartext only to localhost/`*.local` (`NSAllowsLocalNetworking`); the override is `#if DEBUG`-only, so Release always uses prod.
+- The shared scheme is tracked — a scheme env-var edit shows as a diff; discard it before `merge-worktree` (its clean check catches it).
+
 ## Teardown
 
 To land the branch and clean up, use [merge-worktree](../merge-worktree/SKILL.md). To **discard** a worktree without merging:

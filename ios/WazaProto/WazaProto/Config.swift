@@ -1,8 +1,23 @@
 import Foundation
 
 enum Config {
-    static let viewerHost = "https://waza-proto.vercel.app"
-    static let publisherHost = "https://waza-proto.vercel.app"
+    // Viewer page + serverless host. Defaults to prod; a DEBUG build honors the
+    // WAZA_VIEWER_HOST env var so a worktree can point the copy-link page AND
+    // the app's own /api/* fetches at a local `vercel dev` (see the
+    // create-worktree skill). One override covers both: `vercel dev` serves the
+    // page and /api/* from a single origin. Empty/unset → prod, untouched.
+    static let viewerHost = host
+    static let publisherHost = host
+
+    private static let host: String = {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["WAZA_VIEWER_HOST"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "https://waza-proto.vercel.app"
+    }()
 
     static func viewerURL(invite: String) -> URL {
         URL(string: "\(viewerHost)/?invite=\(invite)")!
