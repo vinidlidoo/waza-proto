@@ -124,7 +124,8 @@ No `project.pbxproj` edit (synchronized file group). No Info.plist edit. No `vie
 
 ## Decisions logged during implementation
 
-*(filled in as we go)*
+- **`RoomConnection` needed `import AVFoundation` — the one deviation from the plan as written.** `makePublisher` now names `AVCaptureDevice.Position` cases (`.front`/`.back`) when constructing `CameraSource`; the old `FrontCameraSource()` took no args, so that type never surfaced in `RoomConnection.swift`. Without the import the build fails with *"enum case 'back'/'front' is not available due to missing import of defining module 'AVFoundation'."* (`CameraSource.swift` already imported it.) Everything else landed exactly as planned — three `Source` switches covered, no `project.pbxproj`/Info.plist/viewer change, no test edits.
+- **Verified on-device (iPhone 17), not just the sim.** Selecting Rear + Connect logs `[rearCamera] published …`; repeated Rear↔Front swaps each log a clean unpublish→publish pair with no `Error:` and no room drop — confirming the rear publish path (criteria 2, 5) and live switching (criterion 3) on real hardware. Build clean (0 errors); 34/34 `WazaProtoTests` pass (criterion 7).
 
 ## Vincent's learnings
 
@@ -132,4 +133,4 @@ No `project.pbxproj` edit (synchronized file group). No Info.plist edit. No `vie
 
 ## Tech debt opened
 
-*(filled in as we go)*
+None this slice. (Multi-lens rear capture — wide/ultra-wide/zoom — remains a possible later `features.md` one-liner, as scoped out above.)
