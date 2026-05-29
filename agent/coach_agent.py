@@ -53,11 +53,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("waza-coach")
 logger.setLevel(logging.INFO)
 
+# Diagnostics: LK_GOOGLE_DEBUG=1 makes the google plugin dump every raw Gemini
+# Live message (model turns, turn_complete, interruptions) — but those lines are
+# logged at DEBUG, so the plugin logger has to be lowered for them to surface.
+if int(os.getenv("LK_GOOGLE_DEBUG", "0")):
+    logging.getLogger("livekit.plugins.google").setLevel(logging.DEBUG)
+
 # --- Config (env-overridable) ------------------------------------------------
-# COACH_MODEL swaps among *Gemini Live* model ids on this same plugin — e.g.
-# gemini-2.5-flash-native-audio-preview-12-2025 when we need the programmatic
-# levers 3.1 lacks (plan 21). An OpenAI Realtime A/B is a larger swap (a
-# different llm plugin), not a COACH_MODEL change — see the README.
+# 3.1-flash-live is the default: in on-device testing it's snappy (~3-5s
+# learner-turn-end → coach-speaking, after a slower cold first turn) and reacts
+# to noticeably fresher frames than 2.5. IMPORTANT: the coach being inaudible
+# was NEVER a model problem — it was the publisher token's canSubscribe:false
+# (the app could not receive the agent's audio track); see
+# viewer/api/publisher-token.js. gemini-2.5-flash-native-audio is a selectable
+# alternative (and unlocks the proactivity/affective levers for plan 21) but
+# felt slower + staler here. Override COACH_MODEL to A/B; an OpenAI Realtime A/B
+# is a larger swap (a different llm plugin) — see the README.
 COACH_MODEL = os.getenv("COACH_MODEL", "gemini-3.1-flash-live-preview")
 COACH_VOICE = os.getenv("COACH_VOICE", "Puck")
 # Conservative sampling to bound token cost. 3.1's TURN_INCLUDES_ALL_VIDEO

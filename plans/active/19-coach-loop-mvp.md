@@ -115,7 +115,23 @@ First end-to-end run with the physical glasses. **The hard half works; the gap i
 4. **Re-measure latency** *(task #8)* once we can hear steady-state turns.
 5. **Viewer audio** — already fixed/committed; finish the deploy story (it lives in the `viewer` Vercel project / git-integration previews, *not* a CLI deploy) when it becomes useful.
 
-### Implemented — iOS glasses audio (task #6, 2026-05-29)
+### Live test #2 (2026-05-29) — coach loop works end-to-end ✅
+
+The full conversational loop runs on real hardware: **learner speaks → glasses POV → Gemini → spoken coach reply, audible in the glasses.** Done-criteria #1–#5, #7 met. What actually happened, vs. what we assumed:
+
+- **The one real bug was the publisher token, not the model.** `viewer/api/publisher-token.js` granted `canPublish: true, canSubscribe: false` — the app was provisioned publish-only (it only ever published; viewers subscribed to *it*). With `canSubscribe: false` the LiveKit server delivered the app *nothing*, so the coach's `roomio_audio` never arrived. Symptom (transcribed-but-silent) looked identical to a model failure. Fix: `canSubscribe: true`.
+- **3.1 was never broken at generation.** Earlier "3.1 doesn't generate" was confounded by the publish-only token (agent generated audio the app couldn't receive) — and we never captured a clean 3.1 debug turn before switching. With `canSubscribe: true`, **3.1 generates fine and is the snappier, fresher model** in practice (~3–5 s turns after a slower cold first turn; Vincent's direct read: noticeably fresher frames than 2.5). 3.1 is the committed default; 2.5-native-audio stays selectable via `COACH_MODEL`. (My earlier latency claim that 3.1 had a ~9 s floor was a bad generalization from one cold-start turn — disregard it; the research agent's secondhand "3.1 VAD bug" claims did not hold up against the hardware.)
+- **Audio routes to the glasses over HFP (8 kHz) — and that's fine.** Voice was clear; HFP uses the glasses' own well-placed mic and is lighter on the shared BT link. The A2DP "hybrid" path was dropped: LiveKit's default engine observer hardcodes `.playAndRecordSpeaker` and **ignores `AudioManager.shared.sessionConfiguration`**, so forcing A2DP would need a custom `AudioEngineObserver` *and* would move capture to the phone mic — not worth it. The inert A2DP config was deleted; iOS keeps only audio-route diagnostic logging.
+- **Local-dev token path (no production deploy):** the branch is behind main, so we served the `canSubscribe` fix via a local `vercel dev` (`viewer/`, `:3000`) and launched the app with `WAZA_VIEWER_HOST=http://<LocalHostName>.local:3000` (the DEBUG-only `Config.swift` override, ported from main; `.local` is ATS-exempt). The token change is **committed but NOT yet deployed to prod** — production still serves `canSubscribe: false`, so the coach only works against local dev until this ships.
+
+**Revised next priorities (post-#2):**
+
+1. **Frame freshness — THE headline UX problem (Vincent).** The coach often answers about a frame from **1–2 s before** the question finished. That's video staleness: glass→DAT-BT→iPhone→LiveKit→agent pipeline delay stacked on the Live API's hard **1 fps** video cap (and the model keying off turn-start frames). Shrinking this is the most important optimization for the app.
+2. **Conversational latency** (task #8) — measured ~3–5 s typical on 3.1 (range ~3–10 s). Better than feared but still above natural; tune after / alongside freshness.
+3. **Gate coach dispatch** (task #7) — still open; auto-dispatch bills a Gemini session for any room participant.
+4. **Ship the `canSubscribe` token fix to production** when ready (currently local-dev only).
+
+### Implemented — iOS glasses audio (task #6, 2026-05-29) — SUPERSEDED by test #2 above (A2DP dropped; real fix was the token)
 
 **Shipped** (`RoomConnection.swift`): a one-time `AudioManager.shared.sessionConfiguration` set in `init()` to a **fixed** `AudioSessionConfiguration(category: .playAndRecord, options: [.mixWithOthers, .allowBluetoothA2DP, .allowAirPlay], mode: .videoChat)`. Compiles clean (simulator Debug build SUCCEEDED).
 

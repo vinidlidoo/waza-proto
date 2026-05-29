@@ -71,7 +71,7 @@ describe('viewer/api/publisher-token handler', () => {
     expect(claims.video?.room).toBe('waza-proto');
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.canPublish).toBe(true);
-    expect(claims.video?.canSubscribe).toBe(false);
+    expect(claims.video?.canSubscribe).toBe(true);
   });
 
   it('tampered auth → 401 invalid_auth', async () => {

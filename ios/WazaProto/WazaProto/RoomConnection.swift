@@ -65,25 +65,32 @@ final class RoomConnection: NSObject, ObservableObject {
     init(tokenClient: PublisherTokenClient = PublisherTokenClient()) {
         self.tokenClient = tokenClient
         super.init()
-        Self.configureAudioRouting()
         room.add(delegate: self)
     }
 
-    // Route the coach's voice to the glasses over Bluetooth A2DP (hi-fi,
-    // output-only) while the learner's mic stays on the phone — the hybrid
-    // path the epic settled on. The SDK's stock `.playAndRecordSpeaker` allows
-    // both A2DP *and* HFP; with HFP allowed, iOS treats the glasses as an 8 kHz
-    // bidirectional headset and steals the mic. Allowing A2DP only keeps output
-    // on the glasses' hi-fi sink and forces input back to the built-in mic
-    // (A2DP has no input profile). Mode `.videoChat` retains hardware echo
-    // cancellation. Fixed config (vs. the SDK's dynamic logic) is correct here:
-    // we always publish a mic (plan 07) and always receive coach audio.
-    private static func configureAudioRouting() {
-        AudioManager.shared.sessionConfiguration = AudioSessionConfiguration(
-            category: .playAndRecord,
-            categoryOptions: [.mixWithOthers, .allowBluetoothA2DP, .allowAirPlay],
-            mode: .videoChat
-        )
+    // The coach's voice reaches the glasses over the platform Bluetooth route.
+    // In practice iOS picks HFP (the glasses expose it for their mic too), which
+    // is 8 kHz but perfectly intelligible for speech and uses the glasses' own
+    // well-placed mic. We deliberately do NOT force A2DP: LiveKit's default
+    // engine observer hardcodes `.playAndRecordSpeaker` and ignores
+    // `AudioManager.shared.sessionConfiguration`, so the property route is a
+    // no-op anyway — switching to A2DP (hi-fi, output-only) would require a
+    // custom AudioEngineObserver and would move capture to the phone mic. Not
+    // worth it unless we ever need music-grade coach audio.
+
+    // Diagnostic: where is iOS actually sending output? Printed to the
+    // devicectl --console stream. Tells coach-audio-inaudible apart into its
+    // two cases: wrong route (audio reaches iOS, plays out earpiece/speaker
+    // instead of the glasses) vs. no playout at all.
+    static func logAudioRoute(_ reason: String) {
+        let s = AVAudioSession.sharedInstance()
+        let outs = s.currentRoute.outputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ", ")
+        let ins = s.currentRoute.inputs
+            .map { "\($0.portType.rawValue):\($0.portName)" }.joined(separator: ", ")
+        print("[audio-route] (\(reason)) category=\(s.category.rawValue) "
+            + "mode=\(s.mode.rawValue) options=\(s.categoryOptions.rawValue) "
+            + "outputs=[\(outs)] inputs=[\(ins)]")
     }
 
     func connect(source: Source, glasses: GlassesGateway) {
@@ -105,6 +112,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 await localVideoTrack?.set(reportStatistics: true)
                 profiler.attach(to: localVideoTrack)
                 status = .connected
+                Self.logAudioRoute("connected")
             } catch {
                 status = .failed(Self.failureMessage(for: error))
                 await publisher.unpublish(from: room)
@@ -263,5 +271,19 @@ extension RoomConnection: RoomDelegate {
 
     nonisolated func room(_ room: Room, participantDidDisconnect participant: RemoteParticipant) {
         Task { @MainActor in self.watcherCount = self.currentWatcherCount() }
+    }
+
+    // Diagnostic for the coach-audio path: confirm the agent's audio track is
+    // actually subscribed, and dump the route once LiveKit's AudioManager has
+    // had a moment to (re)configure the session for playout.
+    nonisolated func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+        let kind = publication.kind == .audio ? "audio" : "video"
+        print("[audio-route] subscribed \(kind) track '\(publication.name)' "
+            + "from \(participant.identity?.stringValue ?? "?")")
+        guard publication.kind == .audio else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(800))
+            Self.logAudioRoute("after remote audio subscribed")
+        }
     }
 }
