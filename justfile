@@ -119,3 +119,13 @@ test-ios-ui:
       -project WazaProto.xcodeproj -scheme WazaProto \
       -destination 'platform=iOS Simulator,name=iPhone 17' \
       -parallel-testing-enabled NO -only-testing:WazaProtoUITests
+
+# --- Coach agent (plan 19) ---------------------------------------------------
+
+# Run the AI coach against the LiveKit Cloud room (needs GOOGLE_API_KEY in .env).
+coach:
+    cd agent && uv run coach_agent.py dev
+
+# Smoke-test the coach with local mic/speaker, no room (needs GOOGLE_API_KEY).
+coach-console:
+    cd agent && uv run coach_agent.py console

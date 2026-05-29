@@ -51,3 +51,26 @@ The conversational framing is deliberate: reactive Q&A is the realtime models' n
 5. Coach audio is audible **through the glasses** (A2DP), with a settings toggle to phone speaker/earbuds.
 6. End-to-end conversational latency is measured and recorded (decides whether the feel is natural — and whether fast-twitch tasks are ever in scope).
 7. **Shared-BT-link finding recorded:** does glasses video visibly degrade while the coach speaks? (Pass = usable; the answer shapes the audio-path design.)
+
+## Decisions logged during implementation
+
+The agent lives in [`agent/`](../../agent/) — a `uv`-managed Python project, separate from `ios/` and `viewer/`. `just coach` / `just coach-console` run it; full notes in [`agent/README.md`](../../agent/README.md).
+
+- **SDK versions pinned by `uv.lock`:** `livekit-agents==1.5.14`, `livekit-plugins-google==1.5.14` (`livekit-agents[google,images]~=1.5`). The `images` extra is required — the live-video path resizes/JPEG-encodes sampled frames via Pillow.
+- **v1.5 server idiom, not the older `WorkerOptions`.** The current API is `server = AgentServer()` + an `@server.rtc_session()`-decorated entrypoint + `cli.run_app(server)`. Confirmed against the installed package, not memory.
+- **Auto-dispatch (no `agent_name`).** `rtc_session()`'s `agent_name` defaults to `""`, which means the worker joins *every* new room. The demo uses one fixed room, so this is the simplest correct choice; gate with an explicit `agent_name` + dispatch rule only if we later need to.
+- **Track selection is solved app-side, for free.** `video_input=True` streams "the single most recently published video track" — there is **no built-in track-name filter**. But the iOS app publishes exactly one video track at a time: `RoomConnection.switchSource` *fully unpublishes* the old source before publishing the new one, and `FrontCameraSource` deliberately uses `unpublish(publication:)` rather than mute (its own comment explains mute broke live swaps). So when the glasses source is selected, `glasses-camera` is the only video track and `video_input=True` picks it unambiguously. The agent logs the subscribed track name and **warns** if it isn't `glasses-camera` (done-criterion #1 verification). If we ever publish both feeds at once, the fallback is a custom `RoomIO` filtering by track name.
+- **Model = `gemini-3.1-flash-live-preview`, confirmed limits are real.** Constructing the plugin's `RealtimeModel` with this id emits the documented warning that `generate_reply()` / `update_instructions()` / `update_chat_ctx()` won't apply mid-session, and proactive/affective audio are unsupported. The conversational design sidesteps all of these (every turn is learner-triggered). **No `generate_reply()` greeting on connect** — it would be ignored, and the learner speaks first by design. Model id is a one-line env swap (`COACH_MODEL`).
+- **Conservative video sampling from the start.** `VoiceActivityVideoSampler(speaking_fps=1.0, silent_fps=0.3)` (the framework defaults, set explicitly + env-overridable) plus `media_resolution=MEDIA_RESOLUTION_LOW`. 3.1's `TURN_INCLUDES_ALL_VIDEO` bills every buffered frame per turn, so low fps matters more here than on 2.5.
+- **Built-in turn detection** (Gemini Live VAD) — no Silero/LiveKit turn-detector plugin in Stage 1, per the plan. Revisit if turn-taking feels wrong.
+- **Latency harness = state-transition stopwatch.** The agent times `user_state: speaking→listening` (learner stops) to `agent_state: →speaking` (coach starts) and logs `[latency] learner_turn_end -> coach_speaking = X.XXs`. Coarse but honest: it includes Gemini think+TTS and both network legs — exactly what "does it feel natural?" depends on. Satisfies done-criterion #6.
+
+### Status (2026-05-28)
+
+**Validated without hardware** (all green): deps resolve + install; `coach_agent` imports; the `AgentServer` CLI bootstraps (`console`/`dev`/`start`); `RealtimeModel` constructs with the exact 3.1 kwargs + `MediaResolution` enum; the sampler constructs. The agent is **run-ready**.
+
+**Blocked on two things only I can't self-provision:**
+1. **`GOOGLE_API_KEY`** in the repo-root `.env` (get one at <https://aistudio.google.com/apikey>). Nothing else is needed — LiveKit creds are already there.
+2. **Glasses publishing video** — needs the iPhone app running with the glasses source selected.
+
+Once both are in place: `just coach`, don the glasses, speak a question. Done-criteria 1–3 + 6 are then directly observable from the logs. Criteria **4, 5, 7 (audio routing through the glasses A2DP + browser, and the shared-BT-link finding)** are inherently hardware-in-the-loop and untouched by this code drop — they're the live-test agenda, and the audio-out-to-glasses path is an iOS-app concern (`AVAudioSession` routing) not an agent concern.

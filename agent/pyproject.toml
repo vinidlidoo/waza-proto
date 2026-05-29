@@ -1,0 +1,15 @@
+[project]
+name = "waza-coach-agent"
+version = "0.1.0"
+description = "Plan 19 — Conversational coaching MVP: a LiveKit Agents worker that joins the waza-proto room, watches the glasses POV, and holds a reactive voice conversation via Gemini Live."
+requires-python = ">=3.10"
+dependencies = [
+    # [google] pulls the Gemini Live RealtimeModel; [images] pulls Pillow,
+    # which the live-video path uses to resize/JPEG-encode sampled frames.
+    "livekit-agents[google,images]~=1.5",
+    "python-dotenv>=1.0",
+]
+
+[tool.uv]
+# Keep the lockfile in-repo so the agent is reproducible across machines.
+package = false

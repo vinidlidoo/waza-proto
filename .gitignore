@@ -30,3 +30,7 @@ viewer/.vercel/
 
 # Codex (codex-companion runtime cache)
 .codex/
+
+# Python coach agent (agent/) — plan 19
+agent/.venv/
+agent/**/__pycache__/
