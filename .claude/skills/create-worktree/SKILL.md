@@ -50,6 +50,15 @@ cd "$WT_PATH/viewer" && vercel dev --listen 0.0.0.0:3000   # page + /api/* on :3
 - ATS allows cleartext only to localhost/`*.local` (`NSAllowsLocalNetworking`); the override is `#if DEBUG`-only, so Release always uses prod.
 - The shared scheme is tracked — a scheme env-var edit shows as a diff; discard it before `merge-worktree` (its clean check catches it).
 
+## Testing iOS changes on-device from a worktree
+
+`BuildProject` (xcode MCP) builds whatever Xcode has **open** — usually main, not the worktree. Build the worktree directly, then `devicectl install`/`launch` the `.app` (see the `wireless-deploy` memory):
+
+```bash
+cd "$WT_PATH/ios/WazaProto" && xcodebuild build -project WazaProto.xcodeproj -scheme WazaProto -destination 'id=<udid>' -allowProvisioningUpdates
+# .app dir: re-run with -showBuildSettings | grep TARGET_BUILD_DIR — the worktree has its own DerivedData hash (≠ the one in wireless-deploy memory)
+```
+
 ## Teardown
 
 To land the branch and clean up, use [merge-worktree](../merge-worktree/SKILL.md). To **discard** a worktree without merging:
