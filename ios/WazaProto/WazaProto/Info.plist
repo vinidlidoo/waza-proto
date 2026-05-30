@@ -12,6 +12,14 @@
 	<string>6.0</string>
 	<key>CFBundleDisplayName</key>
 	<string>Waza</string>
+	<!-- Screen broadcast (plan 25): our extension uses Xcode's default bundle id
+	     (….WazaProtoBroadcast) rather than LiveKit's assumed `<app>.broadcast`,
+	     so pin both identifiers. RTCScreenSharingExtension lets the system picker
+	     preselect our extension; RTCAppGroupIdentifier fixes the IPC socket path. -->
+	<key>RTCAppGroupIdentifier</key>
+	<string>group.com.vincent.WazaProto</string>
+	<key>RTCScreenSharingExtension</key>
+	<string>com.vincent.WazaProto.WazaProtoBroadcast</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>

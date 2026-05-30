@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Pin the App Group explicitly: our extension bundle id is the Xcode
+	     default (….WazaProtoBroadcast), not LiveKit's assumed `.broadcast`
+	     convention, so the default group derivation would resolve the wrong
+	     container. This makes the IPC socket path match the main app's. -->
+	<key>RTCAppGroupIdentifier</key>
+	<string>group.com.vincent.WazaProto</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.broadcast-services-upload</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).SampleHandler</string>
+		<key>RPBroadcastProcessMode</key>
+		<string>RPBroadcastProcessModeSampleBuffer</string>
+	</dict>
+</dict>
+</plist>
