@@ -122,10 +122,21 @@
     }
 
     micBtn.addEventListener('click', async () => {
-      const next = !micOn;
+      const lp = room.localParticipant;
       try {
-        await room.localParticipant.setMicrophoneEnabled(next);
-        micOn = next;
+        if (micOn) {
+          // Fully UNPUBLISH (not just mute): iOS/macOS keep the mic "recording"
+          // indicator lit while a capture track is still attached to the peer
+          // connection, even muted/stopped. Removing the track + sender is what
+          // actually releases the device. Re-enabling re-acquires it — the
+          // origin's granted permission persists, so no second prompt.
+          const pub = lp.getTrackPublication(Track.Source.Microphone);
+          if (pub?.track) await lp.unpublishTrack(pub.track, true);
+          micOn = false;
+        } else {
+          await lp.setMicrophoneEnabled(true);
+          micOn = true;
+        }
       } catch (err) {
         console.warn('mic toggle failed:', err);
         setStatus('microphone blocked — allow mic access in your browser', 'error');
@@ -361,11 +372,7 @@
       setStatus(msg, 'error');
     }
 
-    // stopMicTrackOnMute: muting the mic stops the underlying capture track so
-    // the OS releases the device (the macOS/iOS "recording" indicator goes off),
-    // instead of leaving a hot-but-muted mic. Re-enabling re-acquires it; the
-    // origin's granted permission persists, so there's no second prompt.
-    const room = new Room({ stopMicTrackOnMute: true });
+    const room = new Room();
     let reconnecting = false;
     // Deferred "waiting for video" timer. On a publisher Stop the track is
     // unpublished ~instantly before the room is deleted, and a source swap
