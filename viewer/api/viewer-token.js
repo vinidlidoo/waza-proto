@@ -1,4 +1,4 @@
-import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, TrackSource } from 'livekit-server-sdk';
 import { jwtVerify, errors as joseErrors } from 'jose';
 import { randomUUID } from 'node:crypto';
 
@@ -68,7 +68,13 @@ export default async function handler(req, res) {
   at.addGrant({
     roomJoin: true,
     room,
-    canPublish: false,
+    // Viewers may talk back during a demo — but mic ONLY. canPublishSources
+    // caps publishing to the microphone server-side, so a tampered client still
+    // can't push a camera/screen track. The coach is unaffected: its session is
+    // pinned to participant_identity="ios-publisher", so viewer audio never
+    // reaches Gemini (viewers hear the coach; the coach hears only the wearer).
+    canPublish: true,
+    canPublishSources: [TrackSource.MICROPHONE],
     canSubscribe: true,
   });
 

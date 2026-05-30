@@ -12,10 +12,12 @@
     #status { padding: 6px 10px; background: rgba(0,0,0,0.6); border-radius: 4px; }
     #status.connected { background: rgba(0,128,0,0.7); }
     #status.error { background: rgba(180,0,0,0.7); }
-    #enable-audio { display: none; align-items: center; justify-content: center;
+    #enable-audio, #mic-toggle { display: none; align-items: center; justify-content: center;
       width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
       cursor: pointer; background: rgba(0,0,0,0.6); color: #fff;
       font-size: 17px; line-height: 1; }
+    /* Red ring while your mic is live, so it's obvious you're being heard. */
+    #mic-toggle.live { background: rgba(200,0,0,0.75); }
     #debug-stats { position: fixed; right: 12px; bottom: 12px; display: none;
       min-width: 260px; max-width: 360px; padding: 8px 10px; line-height: 1.35;
       background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.15);
@@ -38,6 +40,7 @@
 <body>
   <div id="topbar">
     <button id="enable-audio" aria-label="Enable coach audio">🔇</button>
+    <button id="mic-toggle" aria-label="Turn on your microphone to talk">🎤</button>
     <div id="status">starting…</div>
   </div>
   <div id="debug-stats"></div>
@@ -51,6 +54,7 @@
     const slotEl = document.getElementById('video-slot');
     const debugEl = document.getElementById('debug-stats');
     const enableAudioBtn = document.getElementById('enable-audio');
+    const micBtn = document.getElementById('mic-toggle');
     const PROFILE_TOPIC = 'waza.profile';
     const PROFILE_STAGE = 1;
     const FREEZE_GAP_MS = 150;
@@ -93,6 +97,32 @@
       if (on) els.forEach((a) => a.pause());
       else els.forEach((a) => a.play().catch(() => {}));
       setTimeout(updateAudioBtn, 50);
+    });
+
+    // Talk-back: publish the viewer's mic so the wearer (and other viewers) hear
+    // them. Mic-only by grant — the token can't publish video. Hidden until
+    // connected and OFF by default (this page is shared by link — no hot mics);
+    // the first tap triggers the browser's mic-permission prompt from inside the
+    // user gesture. We mute/unmute rather than unpublish so re-enabling doesn't
+    // re-prompt. The coach never hears this (its session is pinned to the wearer).
+    function updateMicBtn() {
+      if (room.state !== 'connected') { micBtn.style.display = 'none'; return; }
+      const on = Boolean(room.localParticipant?.isMicrophoneEnabled);
+      micBtn.style.display = 'flex';
+      micBtn.classList.toggle('live', on);
+      micBtn.setAttribute('aria-label', on ? 'Mute your microphone' : 'Turn on your microphone to talk');
+    }
+
+    micBtn.addEventListener('click', async () => {
+      const on = Boolean(room.localParticipant?.isMicrophoneEnabled);
+      try {
+        await room.localParticipant.setMicrophoneEnabled(!on);
+      } catch (err) {
+        console.warn('mic toggle failed:', err);
+        setStatus('microphone blocked — allow mic access in your browser', 'error');
+      } finally {
+        updateMicBtn();
+      }
     });
 
     function setStatus(text, cls = '') {
@@ -336,6 +366,7 @@
     // "receiving from …" that TrackSubscribed already set when the publisher
     // was streaming before the viewer joined.
     function refreshStatus() {
+      updateMicBtn();
       if (currentTrack && publisherIdentity) {
         setStatus(`receiving video from ${publisherIdentity}`, 'connected');
         return;

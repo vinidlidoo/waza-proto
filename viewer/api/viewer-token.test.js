@@ -74,7 +74,7 @@ describe('viewer/api/viewer-token handler', () => {
     expect(res.body.error).toBe('missing_invite');
   });
 
-  it('valid invite + live room → mints a subscribe-only token scoped to the room', async () => {
+  it('valid invite + live room → mints a token scoped to the room', async () => {
     const invite = await mintInvite();
     const res = mockResponse();
     await handler({ query: { invite } }, res);
@@ -88,7 +88,7 @@ describe('viewer/api/viewer-token handler', () => {
     const claims = decodeJwt(res.body.token);
     expect(claims.video?.room).toBe(TEST_ROOM);
     expect(claims.video?.canSubscribe).toBe(true);
-    expect(claims.video?.canPublish).toBe(false);
+    expect(claims.video?.canPublish).toBe(true); // mic talk-back; sources capped below
     expect(claims.exp - claims.nbf).toBe(10 * 60);
   });
 
@@ -110,6 +110,21 @@ describe('viewer/api/viewer-token handler', () => {
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toBe('missing_room');
     expect(listRooms).not.toHaveBeenCalled();
+  });
+
+  it('grants mic-only publish (talk-back, never video)', async () => {
+    const invite = await mintInvite();
+    const res = mockResponse();
+    await handler({ query: { invite } }, res);
+
+    const { video } = decodeJwt(res.body.token);
+    expect(video.canPublish).toBe(true);
+    expect(video.canSubscribe).toBe(true);
+    // The audio-not-video guarantee: publishing is capped to the mic, so a
+    // tampered client can't push a camera/screen track.
+    expect(video.canPublishSources).toEqual(['microphone']);
+    expect(video.canPublishSources).not.toContain('camera');
+    expect(video.canPublishSources).not.toContain('screen_share');
   });
 
   it('tampered invite → 401 invalid_invite', async () => {
