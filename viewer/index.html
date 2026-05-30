@@ -16,8 +16,13 @@
       width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%;
       cursor: pointer; background: rgba(0,0,0,0.6); color: #fff;
       font-size: 17px; line-height: 1; }
-    /* Red ring while your mic is live, so it's obvious you're being heard. */
-    #mic-toggle.live { background: rgba(200,0,0,0.75); }
+    /* Mic OFF = the mic glyph with a red backslash through it (mirrors the
+       speaker button's on/off icon swap). ON = the plain glyph, no slash. */
+    #mic-toggle { position: relative; }
+    #mic-toggle.off::after { content: ""; position: absolute; top: 3px; bottom: 3px;
+      left: 50%; width: 2.5px; margin-left: -1.25px; background: #ff4136;
+      border-radius: 2px; transform: rotate(-45deg);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.55); }
     #debug-stats { position: fixed; right: 12px; bottom: 12px; display: none;
       min-width: 260px; max-width: 360px; padding: 8px 10px; line-height: 1.35;
       background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.15);
@@ -105,18 +110,22 @@
     // the first tap triggers the browser's mic-permission prompt from inside the
     // user gesture. We mute/unmute rather than unpublish so re-enabling doesn't
     // re-prompt. The coach never hears this (its session is pinned to the wearer).
+    // Track our own on/off rather than reading isMicrophoneEnabled: that getter
+    // doesn't reliably flip after a mute, which left the second tap re-enabling
+    // instead of disabling. micOn flips only when setMicrophoneEnabled resolves.
+    let micOn = false;
     function updateMicBtn() {
       if (room.state !== 'connected') { micBtn.style.display = 'none'; return; }
-      const on = Boolean(room.localParticipant?.isMicrophoneEnabled);
       micBtn.style.display = 'flex';
-      micBtn.classList.toggle('live', on);
-      micBtn.setAttribute('aria-label', on ? 'Mute your microphone' : 'Turn on your microphone to talk');
+      micBtn.classList.toggle('off', !micOn);
+      micBtn.setAttribute('aria-label', micOn ? 'Mute your microphone' : 'Turn on your microphone to talk');
     }
 
     micBtn.addEventListener('click', async () => {
-      const on = Boolean(room.localParticipant?.isMicrophoneEnabled);
+      const next = !micOn;
       try {
-        await room.localParticipant.setMicrophoneEnabled(!on);
+        await room.localParticipant.setMicrophoneEnabled(next);
+        micOn = next;
       } catch (err) {
         console.warn('mic toggle failed:', err);
         setStatus('microphone blocked — allow mic access in your browser', 'error');
