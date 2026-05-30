@@ -78,31 +78,30 @@
     let activeProfile;
     const audioEls = new Set();
 
-    // Play a remote audio element (the coach's voice). Browsers block unmuted
-    // autoplay without a user gesture, so on rejection we reveal a button that
-    // retries every pending element from inside a click handler.
-    // Speaker on/off toggle. Visible only while a coach voice track exists; the
-    // icon reflects whether audio is currently audible (browsers may block
-    // autoplay until a tap, which is the "off" state the user taps to enable).
+    // Speaker on/off. We gate audibility with el.muted, NOT play/pause: a paused
+    // WebRTC MediaStream element can still render sound in Chrome, so .paused is
+    // an unreliable signal and pause() doesn't reliably silence it — .muted does.
+    // Elements start muted (see TrackSubscribed), so the icon reads muted state.
     function updateAudioBtn() {
       const els = [...audioEls];
       if (els.length === 0) { enableAudioBtn.style.display = 'none'; return; }
-      const on = els.some((a) => !a.paused);
+      const on = els.some((a) => !a.muted);
       enableAudioBtn.style.display = 'flex';
       enableAudioBtn.textContent = on ? '🔊' : '🔇';
-      enableAudioBtn.setAttribute('aria-label', on ? 'Mute coach audio' : 'Enable coach audio');
+      enableAudioBtn.setAttribute('aria-label', on ? 'Mute room audio' : 'Unmute room audio');
     }
 
     function playAudio(el) {
+      // Muted autoplay is always allowed, so this just starts the (silent)
+      // render; unmuting happens on the speaker tap (the user gesture).
       el.play().catch(() => {}).finally(updateAudioBtn);
     }
 
     enableAudioBtn.addEventListener('click', () => {
       const els = [...audioEls];
-      const on = els.some((a) => !a.paused);
-      if (on) els.forEach((a) => a.pause());
-      else els.forEach((a) => a.play().catch(() => {}));
-      setTimeout(updateAudioBtn, 50);
+      const muteNext = els.some((a) => !a.muted);   // currently audible → mute
+      els.forEach((a) => { a.muted = muteNext; if (!muteNext) a.play().catch(() => {}); });
+      updateAudioBtn();
     });
 
     // Talk-back: publish the viewer's mic so the wearer (and other viewers) hear
@@ -417,10 +416,15 @@
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
       if (track.kind === Track.Kind.Audio) {
-        // The coach (agent) voice. Attach an <audio> and play it; no <video>
-        // slot involved, and we never mute it (that's the whole point).
+        // Remote room audio (coach voice + publisher mic + other viewers). Start
+        // MUTED and play: muted autoplay is always allowed, so the element renders
+        // silently until the viewer taps the speaker to unmute. This keeps the
+        // speaker independent of the mic — enabling the mic no longer starts
+        // sound — and makes the icon honest (it reads our own muted flag).
         const el = track.attach();
         el.autoplay = true;
+        el.muted = true;
+        el.addEventListener('volumechange', updateAudioBtn);
         audioEls.add(el);
         document.body.appendChild(el);
         playAudio(el);
