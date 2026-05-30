@@ -19,6 +19,7 @@
     /* Mic OFF = the mic glyph with a red backslash through it (mirrors the
        speaker button's on/off icon swap). ON = the plain glyph, no slash. */
     #mic-toggle { position: relative; }
+    #mic-toggle:disabled { opacity: 0.55; }  /* in-flight publish/unpublish */
     #mic-toggle.off::after { content: ""; position: absolute; top: 3px; bottom: 3px;
       left: 50%; width: 2.5px; margin-left: -1.25px; background: #ff4136;
       border-radius: 2px; transform: rotate(-45deg);
@@ -123,24 +124,32 @@
 
     micBtn.addEventListener('click', async () => {
       const lp = room.localParticipant;
+      const next = !micOn;
+      // Optimistic: flip the icon NOW. Publishing — and especially unpublishing,
+      // which renegotiates the peer connection — takes a beat, and waiting for it
+      // made the button feel stuck. Disable during the in-flight op so taps can't
+      // overlap; revert the icon only if the op actually fails.
+      micOn = next;
+      micBtn.disabled = true;
+      updateMicBtn();
       try {
-        if (micOn) {
+        if (next) {
+          await lp.setMicrophoneEnabled(true);
+        } else {
           // Fully UNPUBLISH (not just mute): iOS/macOS keep the mic "recording"
-          // indicator lit while a capture track is still attached to the peer
+          // indicator lit while a capture track stays attached to the peer
           // connection, even muted/stopped. Removing the track + sender is what
-          // actually releases the device. Re-enabling re-acquires it — the
-          // origin's granted permission persists, so no second prompt.
+          // releases the device. Re-enabling re-acquires it — the origin's
+          // granted permission persists, so no second prompt.
           const pub = lp.getTrackPublication(Track.Source.Microphone);
           if (pub?.track) await lp.unpublishTrack(pub.track, true);
-          micOn = false;
-        } else {
-          await lp.setMicrophoneEnabled(true);
-          micOn = true;
         }
       } catch (err) {
         console.warn('mic toggle failed:', err);
         setStatus('microphone blocked — allow mic access in your browser', 'error');
+        micOn = !next;
       } finally {
+        micBtn.disabled = false;
         updateMicBtn();
       }
     });
