@@ -19,15 +19,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                LocalPreview(track: connection.localVideoTrack, mirror: source == .frontCamera)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Full-bleed: video runs to the hardware edges (top always; bottom
-                    // only when debug isn't splitting the screen). The device's own
-                    // screen corners frame it — no drawn border.
-                    .ignoresSafeArea(edges: showDebug ? .top : .all)
-                if connection.localVideoTrack == nil {
-                    wazaLogo   // launch + post-Stop: brand the black screen
-                }
+                viewfinder
                 scrims
                     .ignoresSafeArea(edges: showDebug ? .top : .all)
                     .allowsHitTesting(false)
@@ -47,6 +39,63 @@ struct ContentView: View {
     }
 
     // MARK: - Layers
+
+    // The video area. For the screen source we deliberately do NOT render the
+    // live track into a VideoView that's on the very screen being captured —
+    // that's an infinite hall-of-mirrors — so we show a card instead. Idle =
+    // broadcast was stopped out-of-band, offering a resume.
+    @ViewBuilder
+    private var viewfinder: some View {
+        if source == .screen, isConnected, !connection.screenIdle {
+            screenShareCard
+        } else {
+            LocalPreview(track: connection.localVideoTrack, mirror: source == .frontCamera)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Full-bleed: video runs to the hardware edges (top always; bottom
+                // only when debug isn't splitting the screen). The device's own
+                // screen corners frame it — no drawn border.
+                .ignoresSafeArea(edges: showDebug ? .top : .all)
+            if connection.localVideoTrack == nil {
+                wazaLogo   // launch + post-Stop: brand the black screen
+            }
+        }
+    }
+
+    // Screen sharing is live — the captured content is going to viewers, not
+    // shown here (anti-recursion). Stop via the bottom-center button.
+    private var screenShareCard: some View { screenShareCardBody }
+
+    // Broadcast was stopped from Control Center / the status bar while still
+    // connected. The room stays up; tap to re-pop the picker and resume. Bounded
+    // (not full-bleed) so it can't cover the Stop button, and mounted as an
+    // overlay *above* controlsLayer so its taps aren't eaten by the switcher
+    // collapse gesture.
+    private var screenResumeCard: some View {
+        Button { selectSource(.screen) } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "play.rectangle.fill").font(.system(size: 40))
+                Text("Screen sharing stopped").font(.headline)
+                Text("Tap to resume").font(.subheadline).foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.white)
+            .padding(28)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var screenShareCardBody: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "rectangle.on.rectangle")
+                .font(.system(size: 44, weight: .light))
+            Text("Sharing your screen").font(.headline)
+            Text("Everything on your screen is going out live")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+    }
 
     // Brand mark on the black screen when no preview is live. The app icon art
     // is dark-on-black, so it blends; sized to ~half the screen width.
@@ -88,6 +137,9 @@ struct ContentView: View {
             .overlay(alignment: .bottomTrailing) { if isConnected { coachButton } }
             .overlay(alignment: .bottom) {
                 if let coachError = connection.coachError { coachErrorPill(coachError) }
+            }
+            .overlay {
+                if isConnected, source == .screen, connection.screenIdle { screenResumeCard }
             }
             .overlay { glassesGateCard }
     }
@@ -138,6 +190,13 @@ struct ContentView: View {
     // selecting glasses just sets the source so its gate card can appear.
     private func selectSource(_ newSource: RoomConnection.Source) {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) { switcherExpanded = false }
+        // Resume after an out-of-band screen stop: source is still .screen, so
+        // the equality guard would swallow the re-tap. Re-publish to re-pop the
+        // picker in place.
+        if isConnected, connection.screenIdle, newSource == .screen {
+            connection.switchSource(to: .screen, glasses: glasses)
+            return
+        }
         guard newSource != source else { return }
         if isConnected {
             guard canConnect(for: newSource) else { return }
@@ -381,8 +440,8 @@ struct ContentView: View {
 
     private func canConnect(for source: RoomConnection.Source) -> Bool {
         switch source {
-        case .frontCamera, .rearCamera: return true
-        case .glasses:                  return glasses.isReady
+        case .frontCamera, .rearCamera, .screen: return true   // screen is gated by the system picker, not a pre-check
+        case .glasses:                           return glasses.isReady
         }
     }
 
@@ -491,6 +550,7 @@ private extension RoomConnection.Source {
         case .frontCamera: return "person.fill"   // you / selfie
         case .rearCamera:  return "camera.fill"    // the world
         case .glasses:     return "eyeglasses"
+        case .screen:      return "rectangle.on.rectangle"   // the phone screen
         }
     }
 }

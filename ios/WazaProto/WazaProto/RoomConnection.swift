@@ -18,12 +18,14 @@ final class RoomConnection: NSObject, ObservableObject {
         case frontCamera = "Front"
         case rearCamera = "Rear"
         case glasses = "Glasses"
+        case screen = "Screen"
         var id: String { rawValue }
         var profileID: String {
             switch self {
             case .frontCamera: return "frontCamera"
             case .rearCamera:  return "rearCamera"
             case .glasses:     return "glasses"
+            case .screen:      return "screen"
             }
         }
     }
@@ -62,6 +64,11 @@ final class RoomConnection: NSObject, ObservableObject {
     // Set when a summon produces no coach (almost always: no worker registered
     // to fulfill the dispatch). Cleared on the next attempt or when one joins.
     @Published private(set) var coachError: String?
+    // True when a screen broadcast was stopped out-of-band (Control Center /
+    // status bar) while still connected: the room/mic/coach stay up, the video
+    // is dropped, and the UI offers a resume. Cleared on any successful
+    // publish and on disconnect.
+    @Published private(set) var screenIdle: Bool = false
 
     // suspendLocalVideoTracksInBackground=false: otherwise LiveKit calls
     // .suspend() on any track with source=.camera (which includes our
@@ -86,6 +93,11 @@ final class RoomConnection: NSObject, ObservableObject {
         self.tokenClient = tokenClient
         super.init()
         room.add(delegate: self)
+        // Publish the screen track ourselves (via ScreenSource) so it flows
+        // through the same VideoPublisher path as every other source — keeps the
+        // single-track invariant and switchSource working. Otherwise the SDK
+        // auto-publishes a screen track when a broadcast starts, racing the swap.
+        BroadcastManager.shared.shouldPublishTrack = false
     }
 
     // The coach's voice reaches the glasses over the platform Bluetooth route.
@@ -144,6 +156,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 localVideoTrack = try await publisher.publish(to: room)
                 await localVideoTrack?.set(reportStatistics: true)
                 profiler.attach(to: localVideoTrack)
+                screenIdle = false
                 status = .connected
                 Self.logAudioRoute("connected")
             } catch {
@@ -178,6 +191,7 @@ final class RoomConnection: NSObject, ObservableObject {
                 localVideoTrack = try await newPublisher.publish(to: room)
                 await localVideoTrack?.set(reportStatistics: true)
                 profiler.attach(to: localVideoTrack)
+                screenIdle = false
                 status = .connected
             } catch {
                 status = .failed(Self.failureMessage(for: error))
@@ -204,6 +218,7 @@ final class RoomConnection: NSObject, ObservableObject {
             coachBusy = false
             coachError = nil
             sessionRoom = nil
+            screenIdle = false
             status = .disconnected
             // Close the session room out-of-band: deleteRoom kicks any viewers
             // (ROOM_DELETED) and, with auto-create off, blocks rejoin. Detached
@@ -305,6 +320,8 @@ final class RoomConnection: NSObject, ObservableObject {
                 deviceSelector: glasses.deviceSelector,
                 onTerminated: { [weak self] in self?.handleGlassesTerminated() }
             )
+        case .screen:
+            return ScreenSource(onEnded: { [weak self] in self?.handleScreenBroadcastEnded() })
         }
     }
 
@@ -353,6 +370,27 @@ final class RoomConnection: NSObject, ObservableObject {
             data: data,
             options: DataPublishOptions(topic: VideoQualityProfiler.dataTopic, reliable: true)
         )
+    }
+
+    // Called from ScreenSource's watchdog when the broadcast ends out-of-band
+    // (Control Center / status-bar indicator). Unlike a glasses fold, this keeps
+    // the room, mic, and coach alive — only the video drops. The publisher stays
+    // a ScreenSource so re-selecting Screen re-pops the picker in place; the UI
+    // shows a resume card while `screenIdle`.
+    private func handleScreenBroadcastEnded() {
+        guard publisher is ScreenSource, case .connected = status else { return }
+        let previous = lifecycleTask
+        lifecycleTask = Task {
+            await previous?.value
+            // Re-check after the await: a queued connect/disconnect/switch may
+            // have swapped the publisher or torn the room down out from under us.
+            guard publisher is ScreenSource, case .connected = status else { return }
+            await stopProfiling(incomplete: true)
+            if let publisher { await publisher.unpublish(from: room) }
+            localVideoTrack = nil
+            profiler.attach(to: nil)
+            screenIdle = true
+        }
     }
 
     private func handleGlassesTerminated() {
