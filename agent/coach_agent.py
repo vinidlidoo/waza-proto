@@ -91,6 +91,13 @@ COACH_MAX_SESSION_SECONDS = float(os.getenv("COACH_MAX_SESSION_SECONDS", "1800")
 # name, so this lets us assert we're watching the glasses, not the phone.
 GLASSES_TRACK_NAME = "glasses-camera"
 
+# Identity the iOS app joins with — must match `identity` in
+# viewer/api/publisher-token.js. We pin the session to this so the coach links
+# to the publisher (whose mic it must hear), never a subscribe-only viewer, and
+# so close_on_disconnect ends the billed session exactly when the publisher
+# leaves — regardless of viewers or join order.
+PUBLISHER_IDENTITY = "ios-publisher"
+
 COACH_INSTRUCTIONS = """\
 You are a hands-on coach watching the user's point of view through smart \
 glasses. You can see their hands and what they are working on in real time. \
@@ -210,7 +217,9 @@ async def entrypoint(ctx: JobContext) -> None:
         # (RoomConnection.switchSource fully unpublishes the old source), so
         # when the glasses source is selected this is unambiguously the
         # "glasses-camera" track — asserted by _wire_track_logging.
-        room_options=room_io.RoomOptions(video_input=True),
+        room_options=room_io.RoomOptions(
+            video_input=True, participant_identity=PUBLISHER_IDENTITY
+        ),
     )
     await ctx.connect()
 
