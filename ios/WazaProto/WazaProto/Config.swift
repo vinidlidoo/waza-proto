@@ -23,8 +23,12 @@ enum Config {
         URL(string: "\(viewerHost)/?invite=\(invite)")!
     }
 
-    static func publisherTokenURL(auth: String) -> URL {
-        URL(string: "\(publisherHost)/api/publisher-token?auth=\(auth)")!
+    static func publisherTokenURL(auth: String, room: String) -> URL {
+        URL(string: "\(publisherHost)/api/publisher-token?auth=\(auth)&room=\(room)")!
+    }
+
+    static func closeRoomURL(auth: String, room: String) -> URL {
+        URL(string: "\(publisherHost)/api/close-room?auth=\(auth)&room=\(room)")!
     }
 
     static func coachDispatchURL() -> URL {

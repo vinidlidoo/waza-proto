@@ -2,7 +2,6 @@ import { AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import { jwtVerify, errors as joseErrors } from 'jose';
 
 const REQUIRED_ENV = ['PUBLISHER_SIGNING_SECRET', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_URL'];
-const ROOM = 'waza-proto';
 // Keep in sync with COACH_AGENT_NAME in agent/coach_agent.py.
 const COACH_AGENT_NAME = 'waza-coach';
 
@@ -26,13 +25,19 @@ export default async function handler(req, res) {
   }
 
   const body = typeof req.body === 'string' ? safeParse(req.body) : (req.body ?? {});
-  const { auth, action } = body;
+  const { auth, action, room } = body;
   if (!auth) {
     res.status(401).json({ error: 'missing_auth' });
     return;
   }
   if (action !== 'summon' && action !== 'dismiss') {
     res.status(400).json({ error: 'invalid_action' });
+    return;
+  }
+  // Per-session room (plan 23). Was a hardcoded `waza-proto`; now the live
+  // session room must be passed or summon/dismiss targets a dead room.
+  if (!room) {
+    res.status(400).json({ error: 'missing_room' });
     return;
   }
 
@@ -59,15 +64,15 @@ export default async function handler(req, res) {
   try {
     if (action === 'summon') {
       const dispatch = new AgentDispatchClient(host, key, secret);
-      const d = await dispatch.createDispatch(ROOM, COACH_AGENT_NAME);
+      const d = await dispatch.createDispatch(room, COACH_AGENT_NAME);
       res.status(200).json({ ok: true, action, dispatchId: d.id ?? null });
     } else {
       const rooms = new RoomServiceClient(host, key, secret);
-      const participants = await rooms.listParticipants(ROOM);
+      const participants = await rooms.listParticipants(room);
       // Agent participants get an `agent-` identity prefix (LiveKit Agents
       // convention); only our coach is ever dispatched here.
       const agents = participants.filter((p) => p.identity?.startsWith('agent-'));
-      await Promise.all(agents.map((p) => rooms.removeParticipant(ROOM, p.identity)));
+      await Promise.all(agents.map((p) => rooms.removeParticipant(room, p.identity)));
       res.status(200).json({ ok: true, action, removed: agents.length });
     }
   } catch (err) {

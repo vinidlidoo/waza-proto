@@ -308,6 +308,12 @@
     }
 
     function showFetchError(err) {
+      // session_ended (403): the publisher closed this session (plan 23). It's a
+      // normal end, not a broken link — show the gentle amber "ended" state.
+      if (err.message === 'session_ended') {
+        setStatus('the broadcast has ended', 'disconnected');
+        return;
+      }
       const msg = {
         missing_invite: 'this link is missing an invite — ask the publisher for a fresh URL',
         invalid_invite: 'this link is invalid — ask the publisher for a fresh URL',
@@ -414,6 +420,12 @@
         }
         return;
       }
+      // ROOM_DELETED: the publisher closed the session mid-watch (plan 23). The
+      // room is gone and the invite is dead — show "ended", don't reconnect.
+      if (reason === DisconnectReason.ROOM_DELETED) {
+        setStatus('the broadcast has ended', 'disconnected');
+        return;
+      }
       refreshStatus();
     });
 
@@ -428,7 +440,7 @@
       await room.connect(url, token);
       refreshStatus();
     } catch (err) {
-      if (err.message && ['missing_invite', 'invalid_invite', 'invite_expired'].includes(err.message)) {
+      if (err.message && ['missing_invite', 'invalid_invite', 'invite_expired', 'session_ended'].includes(err.message)) {
         showFetchError(err);
       } else {
         console.error(err);

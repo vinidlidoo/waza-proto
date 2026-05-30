@@ -1,26 +1,37 @@
-import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { RoomServiceClient } from 'livekit-server-sdk';
 import { jwtVerify, errors as joseErrors } from 'jose';
 
 const REQUIRED_ENV = ['PUBLISHER_SIGNING_SECRET', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_URL'];
-
-// Per-session room minted by the iOS app: waza-proto-{nonce}. Constrain the charset
-// so an authenticated-but-buggy client can't create arbitrarily-named rooms.
-const ROOM_NAME_RE = /^waza-proto-[a-z0-9]+$/;
-// Auto-clean an abandoned room (publisher never showed) after this idle window.
-const ROOM_EMPTY_TIMEOUT_SECONDS = Number(process.env.LIVEKIT_ROOM_EMPTY_TIMEOUT ?? 300);
 
 function httpUrlFromLivekitUrl(wsUrl) {
   return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
 }
 
+/**
+ * POST /api/close-room?room={room}
+ *
+ * Ends a publish session: deletes the LiveKit room, which forcibly disconnects
+ * every viewer (they receive Disconnected/ROOM_DELETED). With project-global
+ * auto-create OFF the room then genuinely cannot be rejoined, and stale invites
+ * fall through viewer-token's listRooms gate to 403 session_ended.
+ *
+ * Authenticated with the same HS256 publisher envelope as /api/publisher-token
+ * (identity must be ios-publisher). The room travels as an unsigned query param:
+ * the envelope already proves the caller is the app, so it may close its own rooms.
+ */
 export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method_not_allowed' });
+    return;
+  }
+
   const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
   if (missing.length > 0) {
     res.status(500).json({ error: 'missing_env', missing });
     return;
   }
 
-  const auth = req.query.auth;
+  const auth = req.body?.auth ?? req.query.auth;
   if (!auth) {
     res.status(401).json({ error: 'missing_auth' });
     return;
@@ -45,47 +56,19 @@ export default async function handler(req, res) {
     res.status(400).json({ error: 'missing_room' });
     return;
   }
-  // Guard against an envelope-holder creating arbitrarily-named rooms.
-  if (!ROOM_NAME_RE.test(room)) {
-    res.status(400).json({ error: 'invalid_room' });
-    return;
-  }
 
-  // Create the session room authoritatively. With project-global auto-create OFF,
-  // this is what makes the room "exist" — so a later deleteRoom (close-room) then
-  // genuinely blocks rejoin instead of the room silently re-creating on next join.
   try {
     const svc = new RoomServiceClient(
       httpUrlFromLivekitUrl(process.env.LIVEKIT_URL),
       process.env.LIVEKIT_API_KEY,
       process.env.LIVEKIT_API_SECRET,
     );
-    await svc.createRoom({ name: room, emptyTimeout: ROOM_EMPTY_TIMEOUT_SECONDS });
+    await svc.deleteRoom(room);
   } catch (err) {
     res.status(502).json({ error: 'livekit_error', detail: String(err?.message ?? err) });
     return;
   }
 
-  const at = new AccessToken(
-    process.env.LIVEKIT_API_KEY,
-    process.env.LIVEKIT_API_SECRET,
-    {
-      identity: 'ios-publisher',
-      ttl: '2h',
-    }
-  );
-  at.addGrant({
-    roomJoin: true,
-    room,
-    canPublish: true,
-    // The publisher subscribes to exactly one remote track: the coach agent's
-    // audio (plan 19). Viewers don't publish, so this grants nothing else.
-    canSubscribe: true,
-  });
-
   res.setHeader('Cache-Control', 'no-store');
-  res.status(200).json({
-    token: await at.toJwt(),
-    url: process.env.LIVEKIT_URL,
-  });
+  res.status(200).json({ ok: true, room });
 }

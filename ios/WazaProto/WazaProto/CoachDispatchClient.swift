@@ -14,13 +14,13 @@ struct CoachDispatchClient {
         case http(Int, String)
     }
 
-    func dispatch(_ action: Action) async throws {
+    func dispatch(_ action: Action, room: String) async throws {
         let auth = PublisherTokenClient.buildEnvelope(secret: Secrets.publisherSigningSecret)
         var req = URLRequest(url: Config.coachDispatchURL())
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(
-            withJSONObject: ["auth": auth, "action": action.rawValue]
+            withJSONObject: ["auth": auth, "action": action.rawValue, "room": room]
         )
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

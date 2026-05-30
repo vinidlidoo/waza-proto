@@ -282,3 +282,58 @@ Disconnect → viewer flips to "stream ended"; re-open the same invite → block
 
 Update `scripts/mint-viewer-invite-url.js` (invite now needs a `room`) and any
 README note on the single hardcoded room.
+
+## Decisions logged during implementation
+
+- **Nonce is normalized to lowercase, dash-free hex.** `UUID().uuidString` is
+  uppercase with dashes; `RoomConnection.sessionRoom(nonce:)` lowercases and
+  strips dashes so the result matches the server's `^waza-proto-[a-z0-9]+$`
+  guard and needs no URL-encoding in the `?room=` param. Tested as a pure helper
+  (`RoomConnectionSessionRoomTests`); the `UUID()` call itself stays untested.
+
+- **`missing_room` vs `invalid_room` split** in `publisher-token.js`: absent
+  param → `400 missing_room`; present but failing the prefix/charset regex →
+  `400 invalid_room`. The viewer/close-room endpoints only need `missing_room`
+  (they don't mint room names, they consume an existing one).
+
+- **viewer-token rejects roomless invites** with `400 missing_room` *before* the
+  `listRooms` network call — a pre-feature invite (no `room` claim) is dead by
+  construction, no point hitting LiveKit.
+
+- **close-room mirrors coach-dispatch's shape**, including `405` on non-POST and
+  `502 livekit_error` on the `deleteRoom` failure path. Auth/room/env ordering
+  matches publisher-token.
+
+- **coach-dispatch made room-dynamic here** (the cross-cutting item): it now
+  requires `room` in the POST body (`400 missing_room`) and threads it to
+  `createDispatch`/`listParticipants`/`removeParticipant`. `CoachDispatchClient`
+  sends `RoomConnection.sessionRoom`; `dispatchCoach` is gated on a live
+  `sessionRoom`. Its test expectations moved off the hardcoded `waza-proto`.
+
+- **`close-room` on disconnect is best-effort.** A network failure is logged and
+  swallowed so it never blocks local teardown — the room then falls back to
+  `emptyTimeout`. `sessionRoom` is cleared on every exit path (success, connect
+  failure, glasses-terminated) so no stale invite can be minted after.
+
+- **e2e live test updated, not just left.** It now creates a per-run
+  `waza-proto-e2e{ts}` room (auto-create is off), mints an invite with the signed
+  `room` claim, and deletes the room in `afterEach`. Still manual/smoke-only
+  (needs live creds + a served `/api`; `vite preview` serves only the static
+  page). The *new* kick/block behavior remains hand-verified per the plan.
+
+- **No README change needed** — the README never documented the single hardcoded
+  room, so there was nothing to amend.
+
+### Verification at implementation time
+
+- Vitest: **32/32 pass** across `publisher-token`, `viewer-token`, `close-room`,
+  `coach-dispatch`.
+- iOS: app + full XCTest target **compile clean** (`xcodebuild build-for-testing`,
+  iOS Simulator SDK). Tests not *run* locally (no simulator runtime on the build
+  host); CI's `ios-unit` job runs them on macos-15.
+
+### Still required before this ships (not code)
+
+- **Ops: turn auto-create OFF** in LiveKit Cloud project settings. Until then the
+  `listRooms` gate is the only re-entry block and a direct-join with a live token
+  could resurrect an empty room (see the auto-create decision above).

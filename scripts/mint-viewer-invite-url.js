@@ -42,10 +42,19 @@ if (!secret) {
   process.exit(1);
 }
 
+// Invites are per-session now (plan 23): the room is a signed claim the viewer
+// endpoint trusts for the room name. Pass the live `waza-proto-<nonce>` room.
+const room = process.argv[2] || env.INVITE_ROOM;
+if (!room) {
+  console.error('usage: mint-viewer-invite-url.js <room>   (or set INVITE_ROOM)');
+  console.error('  room = the live per-session room, e.g. waza-proto-<nonce>');
+  process.exit(1);
+}
+
 const now = Math.floor(Date.now() / 1000);
 const ttlSeconds = Number(env.INVITE_TTL_SECONDS || 3 * 60 * 60);
 const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-const payload = base64url(JSON.stringify({ iat: now, exp: now + ttlSeconds }));
+const payload = base64url(JSON.stringify({ room, iat: now, exp: now + ttlSeconds }));
 const signingInput = `${header}.${payload}`;
 const signature = createHmac('sha256', secret).update(signingInput).digest('base64url');
 const invite = `${signingInput}.${signature}`;

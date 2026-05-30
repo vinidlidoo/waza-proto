@@ -49,6 +49,10 @@ final class RoomConnection: NSObject, ObservableObject {
     @Published private(set) var status: Status = .disconnected
     @Published private(set) var localVideoTrack: VideoTrack?
     @Published private(set) var watcherCount: Int = 0
+    // Per-session room (plan 23): minted fresh on each connect as
+    // `waza-proto-{nonce}`. Held for the session so the invite mint and the
+    // close-room call on disconnect target the same room. nil while disconnected.
+    @Published private(set) var sessionRoom: String?
     @Published private(set) var profileRunID: String?
     // The AI coach (agent_name=waza-coach) is an opt-in participant: present
     // reflects whether it's currently in the room; busy guards a dispatch
@@ -107,8 +111,12 @@ final class RoomConnection: NSObject, ObservableObject {
             status = .connecting
             let publisher = makePublisher(source: source, glasses: glasses)
             self.publisher = publisher
+            // Fresh per-session room each connect; old invites point at the
+            // previous (now-deleted) room, so they can't bleed into this session.
+            let roomName = Self.sessionRoom(nonce: UUID().uuidString)
+            sessionRoom = roomName
             do {
-                let minted = try await tokenClient.mint()
+                let minted = try await tokenClient.mint(room: roomName)
                 try await room.connect(url: minted.url, token: minted.token)
                 watcherCount = currentWatcherCount()
                 // Publish the mic to activate an AVAudioSession — iOS only
@@ -127,6 +135,9 @@ final class RoomConnection: NSObject, ObservableObject {
                 await publisher.unpublish(from: room)
                 await room.disconnect()
                 self.publisher = nil
+                // Connect failed before/while joining; the created room (if any)
+                // empty-times-out. Drop the name so no stale invite is minted.
+                sessionRoom = nil
             }
         }
     }
@@ -162,6 +173,14 @@ final class RoomConnection: NSObject, ObservableObject {
     func disconnect() {
         Task {
             await stopProfiling(incomplete: true)
+            // Close the session room first: deleteRoom kicks every viewer with
+            // ROOM_DELETED and (auto-create off) blocks rejoin. Best-effort — a
+            // network failure must not block local teardown; the room then
+            // empty-times-out instead.
+            if let sessionRoom {
+                do { try await tokenClient.closeRoom(room: sessionRoom) }
+                catch { print("[close-room] failed: \(error)") }
+            }
             if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
             publisher = nil
@@ -171,6 +190,7 @@ final class RoomConnection: NSObject, ObservableObject {
             coachPresent = false
             coachBusy = false
             coachError = nil
+            sessionRoom = nil
             status = .disconnected
         }
     }
@@ -184,12 +204,12 @@ final class RoomConnection: NSObject, ObservableObject {
     func dismissCoach() { dispatchCoach(.dismiss) }
 
     private func dispatchCoach(_ action: CoachDispatchClient.Action) {
-        guard case .connected = status, !coachBusy else { return }
+        guard case .connected = status, !coachBusy, let sessionRoom else { return }
         coachBusy = true
         coachError = nil
         Task {
             do {
-                try await coachClient.dispatch(action)
+                try await coachClient.dispatch(action, room: sessionRoom)
                 // Stay busy until the room actually reflects the change —
                 // the coach takes ~3s to join after the HTTP call returns, and
                 // releasing the button at HTTP-return let rapid taps dispatch
@@ -325,8 +345,18 @@ final class RoomConnection: NSObject, ObservableObject {
             localVideoTrack = nil
             profiler.attach(to: nil)
             watcherCount = 0
+            // Abnormal exit (not the Stop button): leave the room to empty-time
+            // out, but drop the name so no stale invite is minted afterward.
+            sessionRoom = nil
             status = .failed("Glasses session ended — unfold and reconnect")
         }
+    }
+
+    // Pure session-room derivation (plan 23). Normalizes a UUID string to a
+    // lowercase, dash-free suffix so the room matches the server's
+    // `^waza-proto-[a-z0-9]+$` guard and needs no URL-encoding.
+    nonisolated static func sessionRoom(nonce: String) -> String {
+        "waza-proto-" + nonce.lowercased().replacingOccurrences(of: "-", with: "")
     }
 }
 
