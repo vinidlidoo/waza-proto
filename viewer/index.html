@@ -108,8 +108,9 @@
     // them. Mic-only by grant — the token can't publish video. Hidden until
     // connected and OFF by default (this page is shared by link — no hot mics);
     // the first tap triggers the browser's mic-permission prompt from inside the
-    // user gesture. We mute/unmute rather than unpublish so re-enabling doesn't
-    // re-prompt. The coach never hears this (its session is pinned to the wearer).
+    // user gesture. Disabling fully unpublishes the track so the OS releases the
+    // mic (see the click handler); re-enabling re-acquires without a re-prompt,
+    // since the grant persists. The coach never hears this (pinned to the wearer).
     // Track our own on/off rather than reading isMicrophoneEnabled: that getter
     // doesn't reliably flip after a mute, which left the second tap re-enabling
     // instead of disabling. micOn flips only when setMicrophoneEnabled resolves.
@@ -479,6 +480,9 @@
       console.log('disconnected, reason:', reason);
       clearTimeout(videoGapTimer);   // a disconnect outcome supersedes the pending "waiting"
       stopViewerProfile({ incomplete: true, createDownload: true });
+      // The local mic track doesn't survive a disconnect; drop our flag so a
+      // TOKEN_EXPIRED reconnect doesn't show the mic "on" with nothing published.
+      micOn = false;
       // LiveKit JWT TTL is 10min; the invite envelope is 3h. On TOKEN_EXPIRED,
       // try once to mint a fresh JWT — succeeds if the invite is still valid,
       // surfaces invite_expired otherwise.

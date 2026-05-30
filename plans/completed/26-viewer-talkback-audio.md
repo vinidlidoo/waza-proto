@@ -1,6 +1,6 @@
 # Plan 26: Viewer Talk-Back (audio publish, no video)
 
-**Status:** 🚧 In progress
+**Status:** ✅ Shipped (PR #12, plus post-merge UX refinements on `main`)
 
 **Created:** 2026-05-29
 
@@ -196,3 +196,47 @@ allow → speak → confirm audible on the glasses/phone side.
   now talk (mic only).
 - No change to `scripts/mint-viewer-invite-url.js` (invite payload unchanged by
   this plan; plan 23 owns the `room` claim).
+
+## Decisions logged during implementation (post-merge refinements)
+
+The grant + mic-toggle landed as planned (PR #12). On-device testing on the Mac
+mini (Brave + Safari iOS) then surfaced UX issues that drove four follow-up
+commits on `main` — the design notes that changed:
+
+- **Disable UNPUBLISHES the mic, not just mute (reverses the plan's "mute, don't
+  unpublish" decision).** Muting (even with `stopMicTrackOnMute`, which stops the
+  capture track) leaves the RTP sender attached to the peer connection, and
+  iOS/macOS keep the OS "recording" indicator lit while any capture track is
+  attached. Only `unpublishTrack(track, /*stopOnUnpublish*/ true)` — removing the
+  sender — actually releases the device. Re-enabling re-acquires via
+  `setMicrophoneEnabled(true)`; the origin's granted permission persists, so no
+  second prompt. The plan's re-prompt concern didn't materialize. Trade-off:
+  unpublish renegotiates (~1–2 s), so the toggle is **optimistic** — the icon
+  flips immediately and the button disables (dimmed) until the op resolves,
+  reverting only on failure.
+
+- **Own `micOn` boolean, not the `isMicrophoneEnabled` getter.** The getter didn't
+  reliably flip after a mute, leaving the second tap re-enabling instead of
+  disabling. `micOn` flips only when the publish/unpublish resolves, and is reset
+  on `Disconnected` so a TOKEN_EXPIRED reconnect can't show "on" with nothing
+  published.
+
+- **Icon coding mirrors the speaker button:** mic ON = 🎤, mic OFF = 🎤 with a red
+  backslash (CSS `::after` overlay — there's no reliable "muted mic" emoji).
+
+- **Speaker audio is gated on `el.muted`, not play/pause, and elements start
+  MUTED.** A paused WebRTC `MediaStream` element can still render sound in Chrome,
+  so `.paused` was an unreliable signal and `pause()` didn't reliably silence it —
+  which made the speaker icon lie and the mic-enable gesture incidentally start
+  audio. Remote audio now starts muted + playing (muted autoplay is always
+  allowed) and unmutes on the speaker tap. This makes the speaker **fully
+  orthogonal to the mic** and the icon honest. Minor behavior change: the viewer
+  now needs one speaker tap to start hearing (Chrome blocked unmuted autoplay on a
+  shared link anyway). Bonus: driving `el.muted` is also what lets Safari's
+  per-tab audio pill follow the in-page control.
+
+- **Safari per-tab mute can't be synced two-way** (researched against WebKit
+  source): tab mute runs `pageMutedStateDidChange` at the player/output level —
+  it doesn't change `el.muted` and fires no `volumechange`, so JS can't read or
+  toggle it. The only available coupling is one-way (in-page `el.muted` → tab
+  stops emitting → pill hides), which the `el.muted` rework gives for free.
