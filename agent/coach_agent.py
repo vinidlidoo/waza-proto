@@ -16,6 +16,7 @@ LIVEKIT_API_KEY / LIVEKIT_API_SECRET are already there.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -76,10 +77,26 @@ COACH_VOICE = os.getenv("COACH_VOICE", "Puck")
 SPEAKING_FPS = float(os.getenv("COACH_SPEAKING_FPS", "1.0"))
 SILENT_FPS = float(os.getenv("COACH_SILENT_FPS", "0.3"))
 
+# Cost ceiling: hard-cap one coach session's wall-clock so a forgotten or
+# abandoned coach can't bill Gemini Live indefinitely. The session also ends on
+# its own when the learner leaves the room (LiveKit tears the job down when the
+# last real participant goes); this guards the "app still connected but walked
+# away" case. Silence is deliberately NOT the trigger — going quiet while
+# working with your hands is normal here, so an idle timer would cut off live
+# coaching. Generous default (30 min); set COACH_MAX_SESSION_SECONDS=0 to disable.
+COACH_MAX_SESSION_SECONDS = float(os.getenv("COACH_MAX_SESSION_SECONDS", "1800"))
+
 # Contract with the iOS publisher: GlassesSource.swift names the buffer track
 # "glasses-camera". The front camera publishes under a different (default)
 # name, so this lets us assert we're watching the glasses, not the phone.
 GLASSES_TRACK_NAME = "glasses-camera"
+
+# Identity the iOS app joins with — must match `identity` in
+# viewer/api/publisher-token.js. We pin the session to this so the coach links
+# to the publisher (whose mic it must hear), never a subscribe-only viewer, and
+# so close_on_disconnect ends the billed session exactly when the publisher
+# leaves — regardless of viewers or join order.
+PUBLISHER_IDENTITY = "ios-publisher"
 
 COACH_INSTRUCTIONS = """\
 You are a hands-on coach watching the user's point of view through smart \
@@ -200,7 +217,9 @@ async def entrypoint(ctx: JobContext) -> None:
         # (RoomConnection.switchSource fully unpublishes the old source), so
         # when the glasses source is selected this is unambiguously the
         # "glasses-camera" track — asserted by _wire_track_logging.
-        room_options=room_io.RoomOptions(video_input=True),
+        room_options=room_io.RoomOptions(
+            video_input=True, participant_identity=PUBLISHER_IDENTITY
+        ),
     )
     await ctx.connect()
 
@@ -212,6 +231,24 @@ async def entrypoint(ctx: JobContext) -> None:
         COACH_MODEL,
         COACH_VOICE,
     )
+
+    # Cost ceiling — see COACH_MAX_SESSION_SECONDS. A background timer ends the
+    # session at the cap; aclose() disconnects the agent, which stops metering.
+    if COACH_MAX_SESSION_SECONDS > 0:
+        async def _max_duration_guard() -> None:
+            await asyncio.sleep(COACH_MAX_SESSION_SECONDS)
+            logger.info(
+                "ending session — reached max duration of %.0fs",
+                COACH_MAX_SESSION_SECONDS,
+            )
+            await session.aclose()
+
+        guard = asyncio.create_task(_max_duration_guard())
+
+        async def _cancel_guard() -> None:
+            guard.cancel()
+
+        ctx.add_shutdown_callback(_cancel_guard)
 
 
 if __name__ == "__main__":

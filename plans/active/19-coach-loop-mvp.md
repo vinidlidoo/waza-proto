@@ -189,3 +189,35 @@ Vincent pulled the auto-dispatch footgun into this PR as a real feature: a butto
 - Likely fix direction: decouple the agent's **audio** input from **video** re-subscription so a video-track rebuild doesn't tear down the audio turn; and/or stabilise the published video. Keep 3.1.
 - Saw `received server content but no active generation` (Gemini plugin) during churn, and AI-Studio 409s = concurrent/recycled Live sessions. The 409s also came partly from my agent restarts overlapping; the dispatch gate (task #7) reduces this.
 - Repro without hardware where possible: `console` mode exercises the agent+model loop with a local mic; a synthetic re-publish could mimic the churn.
+
+---
+
+## Session 2026-05-29 — landed work + the "phantom coach" mystery (resolved)
+
+### Shipped this session (committed + pushed to `main`, commit `78be3c0`)
+- **Summon-button hardening** (`RoomConnection.swift`): the button now stays *busy* from tap until the room actually reflects the change (`coachPresent` flips on the agent's join/leave), with a 10 s fallback. Before, it released `coachBusy` when the dispatch HTTP returned (~1 s) but the coach takes ~3 s to join — so rapid taps spawned **duplicate coaches** that talked over each other. Verified: one tap → one dispatch (held flat across a 75 s watch).
+- **UI** (`ContentView.swift`): coach button moved into the **live-preview lower-right corner**, icon-only sparkle — blue `borderedProminent` when off (summon), opaque `systemGray3` + red sparkle when on (dismiss), solid-blue spinner while busy. Connect/Disconnect moved into the **status row** as a `video`/`video.fill` borderless icon (filled = connected), matching the bug-button convention; the full-width bottom action button was removed.
+- Tests green on the merged tree (iOS 34, viewer 19). `SourceSwitcherPreview.swift` is an untracked throwaway scaffold — deliberately NOT committed.
+
+### RESOLVED: the "phantom" workers were orphaned local `dev` processes on `minimac`
+Symptom that started it: the coach keeps answering on the phone **even after every `coach_agent.py` was killed**, and 3 `AW_…` workers showed READY in the dashboard. Last session wrongly concluded "external always-on host." **It was this Mac the whole time.**
+
+Root cause: **LiveKit Agents `dev` mode runs the worker as a Python `multiprocessing` tree.** Each `uv run coach_agent.py dev` spawns a `spawn_main … --multiprocessing-fork` child that holds the LiveKit registration websocket. When the parent (`uv run`) was killed, that child was **reparented to launchd (ppid 1) and kept running** — still registered, still fulfilling dispatches. Three `dev` restarts = three surviving orphans = the three dashboard workers.
+
+Why every earlier check missed them:
+- `pkill -f coach_agent` / `ps | rg coach` → orphan's argv is `…multiprocessing.spawn import spawn_main … --multiprocessing-fork`, no "coach_agent" string.
+- `lsof -nP … | rg livekit` → `-n` prints raw IPs (`161.115.177.x`), never the word "livekit" → false negative. **The fix that cracked it:** `lsof -nP -iTCP@<livekit-ip>` (resolve `wss://…livekit.cloud` first) → showed 3 `Python` PIDs on `:443`, ppid 1, **start times matching the dashboard rows to the second** (12:52:10 / 13:05:39 / 14:22:43), plus the live job's parent PID pointing at one of them.
+- `lk agent list` → empty: that lists LiveKit-*hosted* agents; self-hosted worker registrations only appear in the dashboard, never the CLI. (Dashboard "self-hosted" banner was correct — self-hosted just means "registered from your infra," and your infra was `minimac`.)
+
+**Teardown (done this session):** `kill -9` the 3 orphan PIDs (+ their `resource_tracker` siblings); a follow-up dispatch went unfulfilled (no agent joined in 15 s) → confirmed gone. `lsof -iTCP@<livekit-ip>` now clean.
+
+**Durable operational lesson** (saved to memory `coach-worker-runs-locally`): to truly stop a `dev` worker, don't trust `pkill -f coach_agent` — kill the orphaned `--multiprocessing-fork` Python PIDs, or `lsof -nP -iTCP@<livekit-ip>` to find whatever still holds `:443`. The app needs **no** worker for the rest of the pipeline; ✨ help only does something while a worker is registered.
+
+### Decision: how the worker runs going forward (supervised `start`, not hand-run `dev`)
+The orphan saga exposed the real problem — "run `dev` until it dies" was never a deployment. Reframed the two lifecycles: the **worker registration** (cheap always-listening websocket; ~0 cost idle) must be durably available; the **session** (per-summon `AgentSession` + billed Gemini Live) is already ephemeral and correct. Only the worker needed fixing.
+
+- **Now (shipped):** the worker runs as a supervised **`launchd` `start`-mode** service on `minimac` — `just coach-up` / `coach-down` / `coach-status` / `coach-logs`. `start` (vs `dev`) gives graceful SIGTERM drain (no orphans — launchd owns the process group, so `coach-down` = `bootout` kills the whole tree), `KeepAlive` restart-on-crash, and RunAtLoad across reboots. It dials **out** to LiveKit (no inbound port → negligible attack surface; tailnet not needed). Because it connects out, a home box serves summons from anywhere. `coach-down` removes the plist entirely = clean off switch when the project is shelved.
+- **Gotcha:** under launchd's bare env the in-code `os.environ.setdefault("SSL_CERT_FILE", certifi.where())` didn't reach aiohttp's TLS context → `CERTIFICATE_VERIFY_FAILED`. Fix: `coach-up` resolves `certifi.where()` at install time and pins `SSL_CERT_FILE` in the plist `EnvironmentVariables` (set before any Python runs, inherited by every spawned process).
+- **Cost guard (shipped):** `COACH_MAX_SESSION_SECONDS` (default 1800) hard-caps one session's wall-clock via a background `asyncio` timer that calls `session.aclose()` (disconnect → metering stops). Deliberately **not** an idle-on-silence timer: silence while working with your hands is normal here, so idle would cut off live coaching. The session also auto-ends when the learner leaves the room; the cap backstops "still connected but walked away" (and the observed edge case of a coach lingering alone in a room with a stale track).
+- **App signal (shipped):** `RoomConnection.coachError` — if a summon yields no coach within 8 s (almost always: no worker registered), the app shows an orange "Coach unavailable — the worker may be offline" capsule instead of spinning silently.
+- **Graduation path (later, not now):** `lk agent deploy` to LiveKit Cloud — same `start` entrypoint, just LiveKit-supervised (autoscaling, logs, rollback, no "is the mini awake?" dependency). Phase 1 is a strict subset, so nothing here is throwaway. Trade-off: pay for hosted agent compute even when idle.

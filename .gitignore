@@ -32,6 +32,10 @@ viewer/.vercel/
 # Codex (codex-companion runtime cache)
 .codex/
 
+# Claude Code scheduler lock (transient per-process runtime artifact)
+.claude/scheduled_tasks.lock
+
 # Python coach agent (agent/) — plan 19
 agent/.venv/
 agent/**/__pycache__/
+agent/coach.log

@@ -86,6 +86,9 @@ struct ContentView: View {
             .overlay(alignment: .bottomLeading) { sourceSwitcher }
             .overlay(alignment: .bottom) { connectControl }
             .overlay(alignment: .bottomTrailing) { if isConnected { coachButton } }
+            .overlay(alignment: .bottom) {
+                if let coachError = connection.coachError { coachErrorPill(coachError) }
+            }
             .overlay { glassesGateCard }
     }
 
@@ -284,6 +287,21 @@ struct ContentView: View {
             .shadow(radius: 4)
             .padding(.horizontal, 56)   // never overlap the top corner controls
             .padding(.top, 8)
+    }
+
+    // Coach-dispatch failure ("worker may be offline") — orange, floats just
+    // above the bottom control row. Ported from the coach work that landed on
+    // main while this branch was in flight.
+    private func coachErrorPill(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.orange.opacity(0.9), in: Capsule())
+            .shadow(radius: 4)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 76)
     }
 
     private func copyViewerLink() {
