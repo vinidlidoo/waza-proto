@@ -50,6 +50,26 @@ final class RoomConnectionWatcherFilterTests: XCTestCase {
     }
 }
 
+/// The pure per-session room derivation (plan 23). The `UUID()` call itself is
+/// untested (platform RNG); this proves the normalization that keeps the room
+/// matching the server's `^waza-proto-[a-z0-9]+$` guard.
+final class RoomConnectionSessionRoomTests: XCTestCase {
+
+    func testNormalizesUUIDToLowercaseDashFreeSuffix() {
+        let room = RoomConnection.sessionRoom(nonce: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F")
+        XCTAssertEqual(room, "waza-proto-e621e1f8c36c495a93fc0c247a3e6e5f")
+    }
+
+    func testSuffixIsServerValidCharsetOnly() {
+        let room = RoomConnection.sessionRoom(nonce: UUID().uuidString)
+        XCTAssertTrue(room.hasPrefix("waza-proto-"))
+        let suffix = room.dropFirst("waza-proto-".count)
+        XCTAssertFalse(suffix.isEmpty)
+        XCTAssertTrue(suffix.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) },
+                      "suffix must be lowercase hex so it matches ^waza-proto-[a-z0-9]+$")
+    }
+}
+
 final class RoomConnectionProfilerTests: XCTestCase {
 
     func testProfileRunIDUsesUTCSourceAndRunLetter() {

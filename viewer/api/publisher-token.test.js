@@ -1,11 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SignJWT, decodeJwt } from 'jose';
+
+// Mock only RoomServiceClient (network); keep the real AccessToken so we can
+// decode the minted token and assert its grants.
+const { createRoom } = vi.hoisted(() => ({ createRoom: vi.fn() }));
+vi.mock('livekit-server-sdk', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    RoomServiceClient: vi.fn(function () { return { createRoom }; }),
+  };
+});
+
 import handler from './publisher-token.js';
 
 const TEST_PUBLISHER_SECRET = 'test-publisher-secret-do-not-use-in-prod';
 const TEST_LIVEKIT_KEY = 'APItest1234567890';
 const TEST_LIVEKIT_SECRET = 'test-livekit-api-secret-must-be-at-least-32-chars-long';
 const TEST_LIVEKIT_URL = 'wss://test.livekit.cloud';
+const TEST_ROOM = 'waza-proto-abc123def456';
 
 async function mintAuth({
   secret = TEST_PUBLISHER_SECRET,
@@ -42,6 +55,8 @@ describe('viewer/api/publisher-token handler', () => {
       LIVEKIT_API_SECRET: TEST_LIVEKIT_SECRET,
       LIVEKIT_URL: TEST_LIVEKIT_URL,
     };
+    createRoom.mockReset();
+    createRoom.mockResolvedValue({ sid: 'RM_test', name: TEST_ROOM });
   });
 
   afterEach(() => {
@@ -50,35 +65,72 @@ describe('viewer/api/publisher-token handler', () => {
 
   it('missing auth param → 401 missing_auth', async () => {
     const res = mockResponse();
-    await handler({ query: {} }, res);
+    await handler({ query: { room: TEST_ROOM } }, res);
 
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('missing_auth');
   });
 
-  it('valid auth → mints an ios-publisher token with 2h TTL + publish grant', async () => {
+  it('valid auth + room → creates the room and mints a publisher token scoped to it', async () => {
     const auth = await mintAuth();
     const res = mockResponse();
-    await handler({ query: { auth } }, res);
+    await handler({ query: { auth, room: TEST_ROOM } }, res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body.url).toBe(TEST_LIVEKIT_URL);
     expect(res.headers['Cache-Control']).toBe('no-store');
 
+    expect(createRoom).toHaveBeenCalledTimes(1);
+    expect(createRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ name: TEST_ROOM }),
+    );
+    expect(typeof createRoom.mock.calls[0][0].emptyTimeout).toBe('number');
+
     const claims = decodeJwt(res.body.token);
     expect(claims.sub).toBe('ios-publisher');
     expect(claims.exp - claims.nbf).toBe(2 * 60 * 60);
-    expect(claims.video?.room).toBe('waza-proto');
+    expect(claims.video?.room).toBe(TEST_ROOM);
     expect(claims.video?.roomJoin).toBe(true);
     expect(claims.video?.canPublish).toBe(true);
+    // Publisher subscribes to the coach agent's audio (plan 19).
     expect(claims.video?.canSubscribe).toBe(true);
+  });
+
+  it('missing room param → 400 missing_room (no room created)', async () => {
+    const auth = await mintAuth();
+    const res = mockResponse();
+    await handler({ query: { auth } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe('missing_room');
+    expect(createRoom).not.toHaveBeenCalled();
+  });
+
+  it('malformed room name → 400 invalid_room', async () => {
+    const auth = await mintAuth();
+    const res = mockResponse();
+    await handler({ query: { auth, room: 'attacker-room' } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe('invalid_room');
+    expect(createRoom).not.toHaveBeenCalled();
+  });
+
+  it('createRoom failure → 502 livekit_error', async () => {
+    createRoom.mockRejectedValue(new Error('boom'));
+    const auth = await mintAuth();
+    const res = mockResponse();
+    await handler({ query: { auth, room: TEST_ROOM } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body.error).toBe('livekit_error');
   });
 
   it('tampered auth → 401 invalid_auth', async () => {
     const auth = await mintAuth();
     const tampered = auth.slice(0, -4) + 'AAAA';
     const res = mockResponse();
-    await handler({ query: { auth: tampered } }, res);
+    await handler({ query: { auth: tampered, room: TEST_ROOM } }, res);
 
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('invalid_auth');
@@ -93,7 +145,7 @@ describe('viewer/api/publisher-token handler', () => {
       .setExpirationTime(now - 60)
       .sign(key);
     const res = mockResponse();
-    await handler({ query: { auth } }, res);
+    await handler({ query: { auth, room: TEST_ROOM } }, res);
 
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('auth_expired');
@@ -102,13 +154,13 @@ describe('viewer/api/publisher-token handler', () => {
   it('wrong sub claim → 401 invalid_auth', async () => {
     const auth = await mintAuth({ sub: 'someone-else' });
     const res = mockResponse();
-    await handler({ query: { auth } }, res);
+    await handler({ query: { auth, room: TEST_ROOM } }, res);
 
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('invalid_auth');
   });
 
-  it('missing env vars → 500 with clear error listing the missing keys', async () => {
+  it('missing env vars → 500 listing the missing keys', async () => {
     delete process.env.PUBLISHER_SIGNING_SECRET;
     delete process.env.LIVEKIT_API_SECRET;
     const res = mockResponse();

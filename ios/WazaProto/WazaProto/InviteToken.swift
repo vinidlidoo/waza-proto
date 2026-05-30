@@ -6,22 +6,25 @@ import Foundation
 /// var `INVITE_SIGNING_SECRET` and treated as a UTF-8 string on both sides so
 /// the HMAC inputs match without a base64-decode step.
 enum InviteToken {
-    static func mint(ttl: TimeInterval = 3 * 60 * 60) -> String {
-        buildEnvelope(secret: Secrets.inviteSigningSecret, ttl: ttl)
+    static func mint(room: String, ttl: TimeInterval = 3 * 60 * 60) -> String {
+        buildEnvelope(secret: Secrets.inviteSigningSecret, room: room, ttl: ttl)
     }
 
-    /// Pure builder. Exposed as `static` with injectable `secret`/`ttl`/`now`
+    /// Pure builder. Exposed as `static` with injectable `secret`/`room`/`ttl`/`now`
     /// so tests can verify the envelope shape and signature deterministically
     /// without generated `Secrets`. Mirrors `PublisherTokenClient.buildEnvelope`.
+    /// The `room` is a *signed* claim (plan 23): the viewer endpoint has no other
+    /// credential to trust for the room name.
     static func buildEnvelope(
         secret: String,
+        room: String,
         ttl: TimeInterval = 3 * 60 * 60,
         now: Date = Date()
     ) -> String {
         let iat = Int(now.timeIntervalSince1970)
         let exp = iat + Int(ttl)
         let header = #"{"alg":"HS256","typ":"JWT"}"#
-        let payload = #"{"iat":\#(iat),"exp":\#(exp)}"#
+        let payload = #"{"room":"\#(room)","iat":\#(iat),"exp":\#(exp)}"#
 
         let h64 = base64URL(Data(header.utf8))
         let p64 = base64URL(Data(payload.utf8))

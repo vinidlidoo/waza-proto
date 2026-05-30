@@ -38,6 +38,8 @@ function mockResponse() {
 
 const post = (body) => ({ method: 'POST', body });
 
+const TEST_ROOM = 'waza-proto-abc123def456';
+
 describe('viewer/api/coach-dispatch handler', () => {
   const originalEnv = process.env;
 
@@ -82,23 +84,32 @@ describe('viewer/api/coach-dispatch handler', () => {
   it('wrong sub → 401 invalid_auth', async () => {
     const auth = await mintAuth({ sub: 'someone-else' });
     const res = mockResponse();
-    await handler(post({ auth, action: 'summon' }), res);
+    await handler(post({ auth, action: 'summon', room: TEST_ROOM }), res);
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('invalid_auth');
   });
 
-  it('summon → creates a dispatch for waza-coach in waza-proto', async () => {
-    createDispatch.mockResolvedValue({ id: 'AD_abc123' });
+  it('missing room → 400 missing_room', async () => {
     const auth = await mintAuth();
     const res = mockResponse();
     await handler(post({ auth, action: 'summon' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe('missing_room');
+    expect(createDispatch).not.toHaveBeenCalled();
+  });
+
+  it('summon → creates a dispatch for waza-coach in the session room', async () => {
+    createDispatch.mockResolvedValue({ id: 'AD_abc123' });
+    const auth = await mintAuth();
+    const res = mockResponse();
+    await handler(post({ auth, action: 'summon', room: TEST_ROOM }), res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ ok: true, action: 'summon', dispatchId: 'AD_abc123' });
-    expect(createDispatch).toHaveBeenCalledWith('waza-proto', 'waza-coach');
+    expect(createDispatch).toHaveBeenCalledWith(TEST_ROOM, 'waza-coach');
   });
 
-  it('dismiss → removes only the agent participant(s)', async () => {
+  it('dismiss → removes only the agent participant(s) from the session room', async () => {
     listParticipants.mockResolvedValue([
       { identity: 'ios-publisher' },
       { identity: 'agent-AJ_xyz' },
@@ -107,18 +118,18 @@ describe('viewer/api/coach-dispatch handler', () => {
     removeParticipant.mockResolvedValue(undefined);
     const auth = await mintAuth();
     const res = mockResponse();
-    await handler(post({ auth, action: 'dismiss' }), res);
+    await handler(post({ auth, action: 'dismiss', room: TEST_ROOM }), res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ ok: true, action: 'dismiss', removed: 1 });
     expect(removeParticipant).toHaveBeenCalledTimes(1);
-    expect(removeParticipant).toHaveBeenCalledWith('waza-proto', 'agent-AJ_xyz');
+    expect(removeParticipant).toHaveBeenCalledWith(TEST_ROOM, 'agent-AJ_xyz');
   });
 
   it('missing env → 500 missing_env', async () => {
     delete process.env.LIVEKIT_API_SECRET;
     const res = mockResponse();
-    await handler(post({ action: 'summon' }), res);
+    await handler(post({ action: 'summon', room: TEST_ROOM }), res);
     expect(res.statusCode).toBe(500);
     expect(res.body.error).toBe('missing_env');
   });

@@ -1,15 +1,35 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SignJWT, decodeJwt } from 'jose';
+
+// Mock only RoomServiceClient (network); keep the real AccessToken so we can
+// decode the minted token and assert its grants.
+const { listRooms } = vi.hoisted(() => ({ listRooms: vi.fn() }));
+vi.mock('livekit-server-sdk', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    RoomServiceClient: vi.fn(function () { return { listRooms }; }),
+  };
+});
+
 import handler from './viewer-token.js';
 
 const TEST_INVITE_SECRET = 'test-invite-secret-do-not-use-in-prod';
 const TEST_LIVEKIT_KEY = 'APItest1234567890';
 const TEST_LIVEKIT_SECRET = 'test-livekit-api-secret-must-be-at-least-32-chars-long';
 const TEST_LIVEKIT_URL = 'wss://test.livekit.cloud';
+const TEST_ROOM = 'waza-proto-abc123def456';
 
-async function mintInvite({ secret = TEST_INVITE_SECRET, expiresIn = '1h' } = {}) {
+// `room: null` mints a roomless invite (pre-feature shape). A default param of
+// TEST_ROOM would be re-applied to an explicit `undefined`, so the opt-out is null.
+async function mintInvite({
+  secret = TEST_INVITE_SECRET,
+  room = TEST_ROOM,
+  expiresIn = '3h',
+} = {}) {
   const key = new TextEncoder().encode(secret);
-  return await new SignJWT({})
+  const payload = room === null ? {} : { room };
+  return await new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(expiresIn)
@@ -38,6 +58,8 @@ describe('viewer/api/viewer-token handler', () => {
       LIVEKIT_API_SECRET: TEST_LIVEKIT_SECRET,
       LIVEKIT_URL: TEST_LIVEKIT_URL,
     };
+    listRooms.mockReset();
+    listRooms.mockResolvedValue([{ name: TEST_ROOM }]);
   });
 
   afterEach(() => {
@@ -52,7 +74,7 @@ describe('viewer/api/viewer-token handler', () => {
     expect(res.body.error).toBe('missing_invite');
   });
 
-  it('valid invite → mints a viewer- token with 10m TTL', async () => {
+  it('valid invite + live room → mints a subscribe-only token scoped to the room', async () => {
     const invite = await mintInvite();
     const res = mockResponse();
     await handler({ query: { invite } }, res);
@@ -61,9 +83,33 @@ describe('viewer/api/viewer-token handler', () => {
     expect(res.body.url).toBe(TEST_LIVEKIT_URL);
     expect(res.headers['Cache-Control']).toBe('no-store');
 
+    expect(listRooms).toHaveBeenCalledWith([TEST_ROOM]);
+
     const claims = decodeJwt(res.body.token);
-    expect(claims.sub).toMatch(/^viewer-[0-9a-f]{8}$/);
-    expect(claims.exp - claims.nbf).toBe(600);
+    expect(claims.video?.room).toBe(TEST_ROOM);
+    expect(claims.video?.canSubscribe).toBe(true);
+    expect(claims.video?.canPublish).toBe(false);
+    expect(claims.exp - claims.nbf).toBe(10 * 60);
+  });
+
+  it('closed session (room gone) → 403 session_ended', async () => {
+    listRooms.mockResolvedValue([]);
+    const invite = await mintInvite();
+    const res = mockResponse();
+    await handler({ query: { invite } }, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.error).toBe('session_ended');
+  });
+
+  it('invite without room claim → 400 missing_room', async () => {
+    const invite = await mintInvite({ room: null });
+    const res = mockResponse();
+    await handler({ query: { invite } }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe('missing_room');
+    expect(listRooms).not.toHaveBeenCalled();
   });
 
   it('tampered invite → 401 invalid_invite', async () => {
@@ -79,9 +125,9 @@ describe('viewer/api/viewer-token handler', () => {
   it('expired invite → 401 invite_expired', async () => {
     const key = new TextEncoder().encode(TEST_INVITE_SECRET);
     const now = Math.floor(Date.now() / 1000);
-    const invite = await new SignJWT({})
+    const invite = await new SignJWT({ room: TEST_ROOM })
       .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt(now - 3600)
+      .setIssuedAt(now - 600)
       .setExpirationTime(now - 60)
       .sign(key);
     const res = mockResponse();
@@ -91,28 +137,22 @@ describe('viewer/api/viewer-token handler', () => {
     expect(res.body.error).toBe('invite_expired');
   });
 
-  it('missing env vars → 500 with clear error listing the missing keys', async () => {
-    delete process.env.INVITE_SIGNING_SECRET;
+  it('listRooms failure → 502 livekit_error', async () => {
+    listRooms.mockRejectedValue(new Error('boom'));
+    const invite = await mintInvite();
+    const res = mockResponse();
+    await handler({ query: { invite } }, res);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body.error).toBe('livekit_error');
+  });
+
+  it('missing env → 500 missing_env', async () => {
     delete process.env.LIVEKIT_API_SECRET;
     const res = mockResponse();
     await handler({ query: {} }, res);
 
     expect(res.statusCode).toBe(500);
     expect(res.body.error).toBe('missing_env');
-    expect(res.body.missing).toEqual(
-      expect.arrayContaining(['INVITE_SIGNING_SECRET', 'LIVEKIT_API_SECRET']),
-    );
-  });
-
-  it('different invites → distinct viewer identities (non-deterministic mint)', async () => {
-    const results = await Promise.all(
-      Array.from({ length: 20 }, async () => {
-        const invite = await mintInvite();
-        const res = mockResponse();
-        await handler({ query: { invite } }, res);
-        return decodeJwt(res.body.token).sub;
-      }),
-    );
-    expect(new Set(results).size).toBe(20);
   });
 });

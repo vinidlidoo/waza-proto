@@ -1,8 +1,12 @@
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { jwtVerify, errors as joseErrors } from 'jose';
 import { randomUUID } from 'node:crypto';
 
 const REQUIRED_ENV = ['INVITE_SIGNING_SECRET', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_URL'];
+
+function httpUrlFromLivekitUrl(wsUrl) {
+  return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+}
 
 export default async function handler(req, res) {
   const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
@@ -18,11 +22,38 @@ export default async function handler(req, res) {
   }
 
   const inviteKey = new TextEncoder().encode(process.env.INVITE_SIGNING_SECRET);
+  let claims;
   try {
-    await jwtVerify(invite, inviteKey, { algorithms: ['HS256'] });
+    ({ payload: claims } = await jwtVerify(invite, inviteKey, { algorithms: ['HS256'] }));
   } catch (err) {
     const code = err instanceof joseErrors.JWTExpired ? 'invite_expired' : 'invalid_invite';
     res.status(401).json({ error: code });
+    return;
+  }
+
+  // The room is a SIGNED claim in the invite — a viewer can't pick an arbitrary
+  // room. Invites minted before this feature carry no room and are rejected.
+  const room = claims.room;
+  if (!room) {
+    res.status(400).json({ error: 'missing_room' });
+    return;
+  }
+
+  // Re-entry gate: once the publisher closes the session the room is deleted, so
+  // listRooms returns nothing and a stale invite resolves to 403 session_ended.
+  try {
+    const svc = new RoomServiceClient(
+      httpUrlFromLivekitUrl(process.env.LIVEKIT_URL),
+      process.env.LIVEKIT_API_KEY,
+      process.env.LIVEKIT_API_SECRET,
+    );
+    const existing = await svc.listRooms([room]);
+    if (!existing || existing.length === 0) {
+      res.status(403).json({ error: 'session_ended' });
+      return;
+    }
+  } catch (err) {
+    res.status(502).json({ error: 'livekit_error', detail: String(err?.message ?? err) });
     return;
   }
 
@@ -36,7 +67,7 @@ export default async function handler(req, res) {
   );
   at.addGrant({
     roomJoin: true,
-    room: 'waza-proto',
+    room,
     canPublish: false,
     canSubscribe: true,
   });

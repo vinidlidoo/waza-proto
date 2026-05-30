@@ -305,7 +305,10 @@ struct ContentView: View {
     }
 
     private func copyViewerLink() {
-        let url = Config.viewerURL(invite: InviteToken.mint())
+        // Guarded by isConnected (the cluster only shows when live), so the
+        // session room is always set here; bail rather than mint a roomless invite.
+        guard let room = connection.sessionRoom else { return }
+        let url = Config.viewerURL(invite: InviteToken.mint(room: room))
         UIPasteboard.general.string = url.absoluteString
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let token = "Link copied (valid 3h)"

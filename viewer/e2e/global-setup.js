@@ -1,11 +1,12 @@
-// Loads .env into process.env, mints a test invite via the same signing key
-// the deployed token endpoint uses, and spawns `lk room join --publish`
-// against the waza-proto room with a test pattern. The publisher PID is
-// passed to global-teardown via a small file so the test runner can kill it
-// cleanly.
+// Loads .env into process.env, creates a per-run session room (plan 23), mints
+// a test invite (with the signed room claim) via the same signing key the
+// deployed token endpoint uses, and spawns `lk room join --publish` against that
+// room with a test pattern. The publisher PID and room name are passed to
+// global-teardown via small files so the test runner can clean both up.
 
 import { config as loadEnv } from 'dotenv';
 import { SignJWT } from 'jose';
+import { RoomServiceClient } from 'livekit-server-sdk';
 import { spawn } from 'node:child_process';
 import { writeFile, unlink } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -27,11 +28,20 @@ export default async function globalSetup() {
         if (!process.env[key]) throw new Error(`missing env var ${key}; check repo-root .env`);
     }
 
-    // Mint a 3h invite — same envelope shape scripts/mint-publisher-token.sh produces
-    // but inline so the test is self-contained. Identity prefix matches the
-    // production mint flow ("e2e-") so the viewer-filter test won't count it.
+    // Per-session room (plan 23): rooms are waza-proto-{nonce} and, with project
+    // auto-create OFF, must exist before anyone joins. Create a unique per-run
+    // room here; global-teardown deletes it via the .e2e-room marker file.
+    const room = `waza-proto-e2e${Date.now()}`;
+    const host = process.env.LIVEKIT_URL.replace(/^ws/, 'http');
+    const svc = new RoomServiceClient(host, process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
+    await svc.createRoom({ name: room, emptyTimeout: 300 });
+    await writeFile(resolve(__dirname, '.e2e-room'), room);
+
+    // Mint a 3h invite carrying the signed room claim the token endpoint needs.
+    // Identity prefix matches the production mint flow ("e2e-") so the
+    // viewer-filter test won't count it.
     const secret = new TextEncoder().encode(process.env.INVITE_SIGNING_SECRET);
-    const invite = await new SignJWT({})
+    const invite = await new SignJWT({ room })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('3h')
@@ -42,7 +52,7 @@ export default async function globalSetup() {
     // env (we already loaded .env), so we don't pass them on the CLI.
     const publisher = spawn('lk', [
         'room', 'join',
-        '--room', 'waza-proto',
+        '--room', room,
         '--identity', 'e2e-publisher',
         '--publish', ASSET,
         '--fps', '30',

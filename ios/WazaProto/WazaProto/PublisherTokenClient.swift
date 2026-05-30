@@ -17,9 +17,9 @@ struct PublisherTokenClient {
         case decode(String)
     }
 
-    func mint() async throws -> Minted {
+    func mint(room: String) async throws -> Minted {
         let auth = Self.buildEnvelope(secret: Secrets.publisherSigningSecret)
-        var req = URLRequest(url: Config.publisherTokenURL(auth: auth))
+        var req = URLRequest(url: Config.publisherTokenURL(auth: auth, room: room))
         req.httpMethod = "POST"
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -32,6 +32,20 @@ struct PublisherTokenClient {
             throw MintError.decode(String(data: data, encoding: .utf8) ?? "")
         }
         return Minted(token: token, url: url)
+    }
+
+    /// Close (delete) the session room via `/api/close-room` — kicks every
+    /// viewer and blocks rejoin. Same publisher envelope as `mint`; room rides
+    /// as a `?room=` query param (see plan 23's room-passing decision).
+    func closeRoom(room: String) async throws {
+        let auth = Self.buildEnvelope(secret: Secrets.publisherSigningSecret)
+        var req = URLRequest(url: Config.closeRoomURL(auth: auth, room: room))
+        req.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw MintError.http(status, String(data: data, encoding: .utf8) ?? "")
+        }
     }
 
     /// Pure builder. Exposed as `static` so tests can verify the envelope
