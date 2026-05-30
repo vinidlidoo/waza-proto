@@ -209,6 +209,12 @@ async def entrypoint(ctx: JobContext) -> None:
     _wire_track_logging(ctx.room)
     _wire_latency_logging(session)
 
+    # Connect to the room BEFORE starting the session. With participant_identity
+    # pinned, RoomIO.start() reads room.local_participant during session.start(),
+    # which throws if the room isn't connected yet. (Without the pin this order
+    # happened to work; the canonical order is connect-then-start regardless.)
+    await ctx.connect()
+
     await session.start(
         agent=CoachAgent(),
         room=ctx.room,
@@ -221,7 +227,6 @@ async def entrypoint(ctx: JobContext) -> None:
             video_input=True, participant_identity=PUBLISHER_IDENTITY
         ),
     )
-    await ctx.connect()
 
     # Deliberately NO session.generate_reply() greeting: on 3.1 it's ignored,
     # and the design is learner-driven — the first model turn is triggered by
