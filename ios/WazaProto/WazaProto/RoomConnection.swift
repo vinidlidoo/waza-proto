@@ -74,6 +74,13 @@ final class RoomConnection: NSObject, ObservableObject {
     private let profiler = VideoQualityProfiler()
     private var profileStopTask: Task<Void, Never>?
     private var profileRunCounts: [Source: Int] = [:]
+    // Serializes connect / disconnect / switchSource / glasses-teardown. These
+    // all mutate shared state (room, publisher, sessionRoom, localVideoTrack)
+    // from @MainActor Tasks that interleave at every `await`, so a quick
+    // Stop→Play used to run a new connect *while* the prior teardown was still
+    // suspended on its close-room network call — leaving the wrong camera or a
+    // dead session. Each op awaits the previous before touching shared state.
+    private var lifecycleTask: Task<Void, Never>?
 
     init(tokenClient: PublisherTokenClient = PublisherTokenClient()) {
         self.tokenClient = tokenClient
@@ -107,7 +114,16 @@ final class RoomConnection: NSObject, ObservableObject {
     }
 
     func connect(source: Source, glasses: GlassesGateway) {
-        Task {
+        let previous = lifecycleTask
+        lifecycleTask = Task {
+            await previous?.value
+            // A connect queued behind a disconnect runs here once teardown is
+            // done. Only start from a resting state — ignore stray taps while
+            // already live or in-flight.
+            switch status {
+            case .connected, .connecting, .switching: return
+            case .disconnected, .failed: break
+            }
             status = .connecting
             let publisher = makePublisher(source: source, glasses: glasses)
             self.publisher = publisher
@@ -146,8 +162,10 @@ final class RoomConnection: NSObject, ObservableObject {
     /// already be `.connected`. On failure, status flips to `.failed` and the
     /// caller is expected to revert any UI source selection.
     func switchSource(to source: Source, glasses: GlassesGateway) {
-        guard case .connected = status else { return }
-        Task {
+        let previous = lifecycleTask
+        lifecycleTask = Task {
+            await previous?.value
+            guard case .connected = status else { return }
             status = .switching
             let oldPublisher = publisher
             let newPublisher = makePublisher(source: source, glasses: glasses)
@@ -171,16 +189,11 @@ final class RoomConnection: NSObject, ObservableObject {
     }
 
     func disconnect() {
-        Task {
+        let previous = lifecycleTask
+        lifecycleTask = Task {
+            await previous?.value
             await stopProfiling(incomplete: true)
-            // Close the session room first: deleteRoom kicks every viewer with
-            // ROOM_DELETED and (auto-create off) blocks rejoin. Best-effort — a
-            // network failure must not block local teardown; the room then
-            // empty-times-out instead.
-            if let sessionRoom {
-                do { try await tokenClient.closeRoom(room: sessionRoom) }
-                catch { print("[close-room] failed: \(error)") }
-            }
+            let closingRoom = sessionRoom
             if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
             publisher = nil
@@ -192,6 +205,17 @@ final class RoomConnection: NSObject, ObservableObject {
             coachError = nil
             sessionRoom = nil
             status = .disconnected
+            // Close the session room out-of-band: deleteRoom kicks any viewers
+            // (ROOM_DELETED) and, with auto-create off, blocks rejoin. Detached
+            // and best-effort so it never delays teardown or a quick reconnect —
+            // a following Connect mints a fresh room name, independent of this
+            // deletion; an abandoned room empty-times-out anyway.
+            if let closingRoom {
+                Task { [tokenClient] in
+                    do { try await tokenClient.closeRoom(room: closingRoom) }
+                    catch { print("[close-room] failed: \(error)") }
+                }
+            }
         }
     }
 
@@ -337,7 +361,12 @@ final class RoomConnection: NSObject, ObservableObject {
         // the viewer flips to "waiting for video" and the user can hit Connect
         // again once the glasses are usable.
         guard publisher is GlassesSource else { return }
-        Task {
+        let previous = lifecycleTask
+        lifecycleTask = Task {
+            await previous?.value
+            // Re-check after the await: a queued connect/disconnect may have
+            // already changed the publisher out from under us.
+            guard publisher is GlassesSource else { return }
             await stopProfiling(incomplete: true)
             if let publisher { await publisher.unpublish(from: room) }
             await room.disconnect()
