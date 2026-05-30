@@ -324,6 +324,12 @@
 
     const room = new Room();
     let reconnecting = false;
+    // Deferred "waiting for video" timer. On a publisher Stop the track is
+    // unpublished ~instantly before the room is deleted, and a source swap
+    // resubscribes within a frame or two — flashing "waiting for video…"
+    // between states is just noise. We defer that message so a following
+    // ROOM_DELETED (→ "broadcast has ended") or a new track wins first.
+    let videoGapTimer;
 
     // Derive status from (room.state, currentTrack). Avoids races where an
     // imperative setStatus() after `await room.connect()` overwrites the
@@ -336,7 +342,7 @@
       }
       switch (room.state) {
         case 'connected':
-          setStatus(`connected to ${room.name} — waiting for video…`, 'connected');
+          setStatus('waiting for video…', 'connected');
           break;
         case 'reconnecting':
           setStatus('reconnecting…');
@@ -361,6 +367,7 @@
         return;
       }
       if (track.kind !== Track.Kind.Video) return;
+      clearTimeout(videoGapTimer);   // a track arrived — cancel any pending "waiting"
       const el = track.attach();
       currentTrack = track;
       currentVideo = el;
@@ -381,7 +388,11 @@
         currentTrack = undefined;
         currentVideo = undefined;
         publisherIdentity = undefined;
-        refreshStatus();
+        // Defer, don't flash: on Stop the room is deleted right after this
+        // (→ "broadcast has ended"); on a source swap a new track arrives in a
+        // frame or two. Only show "waiting for video…" if the gap really lasts.
+        clearTimeout(videoGapTimer);
+        videoGapTimer = setTimeout(refreshStatus, 1000);
       }
     });
 
@@ -402,6 +413,7 @@
 
     room.on(RoomEvent.Disconnected, async (reason) => {
       console.log('disconnected, reason:', reason);
+      clearTimeout(videoGapTimer);   // a disconnect outcome supersedes the pending "waiting"
       stopViewerProfile({ incomplete: true, createDownload: true });
       // LiveKit JWT TTL is 10min; the invite envelope is 3h. On TOKEN_EXPIRED,
       // try once to mint a fresh JWT — succeeds if the invite is still valid,
